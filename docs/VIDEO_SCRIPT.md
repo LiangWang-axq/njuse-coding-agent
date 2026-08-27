@@ -8,28 +8,27 @@
 
 镜头对准终端/项目目录。口播：
 
-> 这是一个不依赖任何 Agent 框架的编程智能体，它通过大语言模型自主读写文件、执行命令、完成编程任务。下面让它修复一个真实的订单计算 bug。
+> 这是一个不依赖任何 Agent 框架的编程智能体，支持在终端里像聊天一样对话，自主读写文件、执行命令、完成编程任务。下面让它修复一个真实的订单计算 bug。
 
 ### 0:10–1:35 真实任务演示
 
 1. 进入 `demo/tasks/fix_me`，展示目录结构；先手动运行 `python -m unittest discover -s tests -v`，展示 2 个失败测试。
-2. 运行：
+2. 运行 `python -m coding_agent` 进入交互模式（设置 `$env:PYTHONPATH = "..\.."`），输入：
 
    ```powershell
-   cd demo/tasks/fix_me
-   $env:PYTHONPATH = "..\.."
-   python -m coding_agent "检查订单计算模块，修复金额格式化与折扣计算的 bug，运行测试直到全部通过"
+   你 > 检查订单计算模块，修复金额格式化与折扣计算的 bug，运行测试直到全部通过
    ```
 
-3. 镜头跟随每一步 `[步骤 N] 工具名 -> OK`：`list_files`、`read_file`、`search_code`、`replace_in_file`、`run_tests`。
-4. 展示测试由失败变通过，Agent 输出 `final` 总结。
+3. 镜头跟随流式输出的回答与彩色工具行：`list_files`、`read_file`、`search_code`、`replace_in_file`、`run_tests`。
+4. 展示测试由失败变通过，Agent 输出总结与 `（本轮 N 步 · 累计 N 步）`；可再演示 `/status` 与 `/new`。
 
 ### 1:35–2:00 设计讲解
 
 口播要点：
 
 - 所有工具在本地执行，路径锁定工作区，拒绝越界与 `.env`；
-- 自研上下文压缩、输出解析（JSON / 原生 tool calls）与多工具调用；
+- 终端对话体验：自研 SSE 流式输出、多轮历史复用、纯标准库 ANSI 界面；
+- 自研上下文压缩、输出解析（JSON / 原生 tool calls / 流式增量）与多工具调用；
 - 429/5xx 自动重试，连续解析失败或达到最大步数时安全终止；
 - 测试命令白名单，无 shell 拼接。
 

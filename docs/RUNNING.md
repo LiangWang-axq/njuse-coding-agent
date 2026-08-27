@@ -28,11 +28,37 @@ $env:AGENT_API_KEY = "你的本地密钥"
 
 ## 启动
 
-在当前工作区目录执行，当前目录就是 Agent 唯一允许访问的工作区：
+当前工作区目录就是 Agent 唯一允许访问的工作区。有两种启动方式：
+
+### 交互模式（推荐）
+
+```powershell
+python -m coding_agent
+```
+
+进入对话界面后直接输入任务即可：
+
+```text
+Coding Agent 交互模式
+模型: deepseek-chat · 工作区: D:\...\demo\tasks\fix_me
+直接输入任务开始对话，输入 /help 查看命令。
+你 > 检查订单计算模块，修复 bug 并运行测试
+Agent > 我先查看一下相关文件……
+  [工具] read_file("orders.py") -> OK
+  [工具] run_tests("python -m unittest ...") -> 通过
+（本轮 5 步 · 累计 5 步）
+你 >
+```
+
+可用命令：`/help`、`/status`（工作区/模型/累计步骤）、`/new`（清空历史开始新任务）、`/exit`（或 `/quit`）。`Ctrl+C` 在输入时退出程序，在任务执行中取消当前轮并保留历史；`Ctrl+D/Z`（EOF）正常退出。多轮任务在同一进程内共享历史。
+
+### 一次性模式
 
 ```powershell
 python -m coding_agent "检查 demo/tasks/fix_me，修复订单计算 bug，补充测试并运行测试"
 ```
+
+执行完自动退出，退出码 0 表示成功、1 表示 Agent 错误、2 表示达到最大步骤未完成。模型回答同样流式输出，工具调用以 `[步骤 N]` 彩色行展示。
 
 模型每轮返回一个 JSON 动作或原生 tool call。工具调用格式为：
 
@@ -50,7 +76,7 @@ CLI 会打印每一步 `[步骤 N] 工具名(参数) -> OK/错误`，便于观�
 
 ## 工具
 
-`list_files`、`read_file`、`search_code`、`write_file`、`replace_in_file`、`run_tests`、`delete_file`、`move_file`、`git_status`。所有路径必须是工作区相对路径；`run_tests` 仅允许 `python -m unittest/pytest/compileall`，无 shell 拼接。
+`list_files`、`read_file`、`search_code`、`write_file`、`replace_in_file`、`run_tests`、`delete_file`、`move_file`、`git_status`。所有路径必须是工作区相对路径；`run_tests` 仅允许 `python -m unittest/pytest/compileall`，无 shell 拼接。任务针对工作区子目录时，`run_tests` 可用 `cwd` 参数指定相对目录（例如 `{"command": "python -m unittest discover -s tests", "cwd": "demo/tasks/fix_me"}`），测试会切换到该目录执行，避免导入路径错位。
 
 ## 上下文与重试
 

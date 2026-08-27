@@ -4,15 +4,27 @@
 
 `demo/tasks/fix_me` 是一个故意留下两个 bug 的小项目：`format_total` 缺少人民币符号、`apply_discount` 用减法代替百分比折扣；对应测试先失败。
 
-在 `demo/tasks/fix_me` 目录下启动 Agent：
+在 `demo/tasks/fix_me` 目录下启动交互模式：
 
 ```powershell
 cd demo/tasks/fix_me
 $env:PYTHONPATH = "..\.."   # 让该子目录能导入项目根目录的 coding_agent 包
-python -m coding_agent "检查订单计算模块，修复金额格式化与折扣计算的 bug，运行测试直到全部通过"
+python -m coding_agent
 ```
 
-Agent 会展示 `list_files`、`read_file`、`search_code`、`replace_in_file`、`run_tests` 的实际调用，测试由失败变为通过，最后输出 `final` 总结。
+进入对话后输入任务：
+
+```text
+你 > 检查订单计算模块，修复金额格式化与折扣计算的 bug，运行测试直到全部通过
+```
+
+Agent 会流式输出回答，并以彩色行展示 `list_files`、`read_file`、`search_code`、`replace_in_file`、`run_tests` 的实际调用，测试由失败变为通过，最后输出总结。可用 `/status` 查看累计步骤，`/new` 开启新任务，`/exit` 退出。
+
+## 一次性演示（兼容脚本/录屏）
+
+```powershell
+python -m coding_agent "检查订单计算模块，修复金额格式化与折扣计算的 bug，运行测试直到全部通过"
+```
 
 ## 离线演示（无 API key）
 
