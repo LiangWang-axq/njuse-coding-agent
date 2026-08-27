@@ -18,6 +18,19 @@ def _load_dotenv(path: Path) -> dict[str, str]:
     return values
 
 
+def _find_dotenv(start: Path) -> Path | None:
+    """Find the nearest .env in ``start`` or any ancestor (up to 6 levels)."""
+    current = start.resolve()
+    for _ in range(6):
+        candidate = current / ".env"
+        if candidate.is_file():
+            return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+    return None
+
+
 @dataclass(frozen=True)
 class Settings:
     base_url: str
@@ -31,7 +44,8 @@ class Settings:
 
 def load_settings(workspace: Path | None = None) -> Settings:
     root = (workspace or Path.cwd()).resolve()
-    dotenv = _load_dotenv(root / ".env")
+    dotenv_path = _find_dotenv(root)
+    dotenv = _load_dotenv(dotenv_path) if dotenv_path else {}
 
     def value(name: str, default: str = "") -> str:
         return os.environ.get(name, dotenv.get(name, default))
