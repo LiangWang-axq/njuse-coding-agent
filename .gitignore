@@ -3,4 +3,5 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 demo/.runtime/
+test_run/
 .ob1/
