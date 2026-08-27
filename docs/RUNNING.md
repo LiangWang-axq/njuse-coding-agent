@@ -13,7 +13,7 @@ AGENT_BASE_URL=https://api.deepseek.com/v1
 AGENT_API_KEY=你的本地密钥
 AGENT_MODEL=deepseek-chat
 AGENT_TIMEOUT_SECONDS=90
-AGENT_MAX_STEPS=12
+AGENT_MAX_STEPS=24
 AGENT_RETRIES=2
 AGENT_CONTEXT_CHARS=16000
 ```
@@ -76,7 +76,7 @@ CLI 会打印每一步 `[步骤 N] 工具名(参数) -> OK/错误`，便于观�
 
 ## 工具
 
-`list_files`、`read_file`、`search_code`、`write_file`、`replace_in_file`、`run_tests`、`delete_file`、`move_file`、`git_status`。所有路径必须是工作区相对路径；`run_tests` 仅允许 `python -m unittest/pytest/compileall`，无 shell 拼接。任务针对工作区子目录时，`run_tests` 可用 `cwd` 参数指定相对目录（例如 `{"command": "python -m unittest discover -s tests", "cwd": "demo/tasks/fix_me"}`），测试会切换到该目录执行，避免导入路径错位。
+`list_files`、`read_file`、`search_code`、`write_file`、`replace_in_file`、`apply_diff`、`run_tests`、`delete_file`、`move_file`、`git_status`。所有路径必须是工作区相对路径；`run_tests` 仅允许 `python -m unittest/pytest/compileall`，无 shell 拼接。任务针对工作区子目录时，`run_tests` 可用 `cwd` 参数指定相对目录（例如 `{"command": "python -m unittest discover -s tests", "cwd": "demo/tasks/fix_me"}`），测试会切换到该目录执行，避免导入路径错位。`apply_diff` 接受标准 unified diff（`--- a/文件`、`+++ b/文件`、`@@ -起始,行数 +起始,行数 @@`，空格/`-`/`+` 分别表示上下文、删除、新增），一次可含多个 hunk，全部匹配才写入（原子应用），只修改已有文件。
 
 ## 上下文与重试
 

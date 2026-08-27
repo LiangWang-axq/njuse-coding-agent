@@ -44,7 +44,7 @@ class CodingAgent:
         self,
         workspace: Path,
         provider: ChatProvider,
-        max_steps: int = 12,
+        max_steps: int = 24,
         context_chars: int = 16_000,
     ):
         self.workspace = workspace.resolve()
@@ -174,4 +174,4 @@ class CodingAgent:
 
     def _system_prompt(self) -> str:
         schema = json.dumps(tool_schemas(), ensure_ascii=False, indent=2)
-        return f"""你是一个命令行 Coding Agent。你只能通过下面列出的本地工具工作，所有 path 都必须是相对工作区根目录的路径，统一使用正斜杠（/）。先检查相关文件，再修改代码，最后运行测试确认结果。不要臆测文件内容；工具报错时修正参数或方案。任务针对工作区子目录时，读写文件用相对路径，并给 run_tests 传 cwd 参数让测试在该子目录下执行。run_tests 失败时先读返回的 stdout/stderr 中的断言或错误详情，再决定下一步，不要反复猜测目录结构；优先使用 python -m unittest discover -s tests 或 python -m pytest -q。\n\n每次只能返回一个 JSON 对象，不要添加 Markdown 或解释文字：\n工具调用：{{\"type\":\"tool_call\",\"tool\":\"工具名\",\"arguments\":{{...}}}}\n任务完成：{{\"type\":\"final\",\"message\":\"简要说明修改和测试结果\"}}\n\n可用工具：\n{schema}\n"""
+        return f"""你是一个命令行 Coding Agent。你只能通过下面列出的本地工具工作，所有 path 都必须是相对工作区根目录的路径，统一使用正斜杠（/）。先检查相关文件，再修改代码，最后运行测试确认结果。不要臆测文件内容；工具报错时修正参数或方案。任务针对工作区子目录时，读写文件用相对路径，并给 run_tests 传 cwd 参数让测试在该子目录下执行。run_tests 失败时先读返回的 stdout/stderr 中的断言或错误详情，再决定下一步，不要反复猜测目录结构；优先使用 python -m unittest discover -s tests 或 python -m pytest -q。修改已有文件时优先用 apply_diff 做精准修改（一次可含多个 hunk）；只有新建文件或需要整体重写时才用 write_file。\n\n每次只能返回一个 JSON 对象，不要添加 Markdown 或解释文字：\n工具调用：{{\"type\":\"tool_call\",\"tool\":\"工具名\",\"arguments\":{{...}}}}\n任务完成：{{\"type\":\"final\",\"message\":\"简要说明修改和测试结果\"}}\n\n可用工具：\n{schema}\n"""

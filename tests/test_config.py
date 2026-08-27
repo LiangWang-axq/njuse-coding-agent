@@ -26,6 +26,20 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(settings.api_key, "sk-parent")
             self.assertEqual(settings.model, "deepseek-chat")
 
+    def test_default_max_steps_is_24(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {}, clear=False):
+                for key in [k for k in os.environ if k.startswith("AGENT_") or k == "OPENAI_API_KEY"]:
+                    os.environ.pop(key, None)
+                settings = load_settings(Path(directory))
+            self.assertEqual(settings.max_steps, 24)
+
+    def test_max_steps_env_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.dict(os.environ, {"AGENT_MAX_STEPS": "30"}, clear=False):
+                settings = load_settings(Path(directory))
+            self.assertEqual(settings.max_steps, 30)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -85,6 +85,21 @@ class WorkspaceTests(unittest.TestCase):
             self.assertIn("通过测试", result.message)
             self.assertIn("return a + b", (root / "calculator.py").read_text(encoding="utf-8"))
 
+    def test_agent_executes_apply_diff_action(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "calc.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+            diff = "--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def add(a, b):\n-    return a - b\n+    return a + b\n"
+            provider = ScriptedProvider(
+                [
+                    json.dumps({"type": "tool_call", "tool": "apply_diff", "arguments": {"path": "calc.py", "diff": diff}}),
+                    json.dumps({"type": "final", "message": "已通过 diff 修复"}),
+                ]
+            )
+            result = CodingAgent(root, provider, max_steps=4).run("修复 add")
+            self.assertTrue(result.success)
+            self.assertIn("return a + b", (root / "calc.py").read_text(encoding="utf-8"))
+
     def test_agent_executes_multiple_native_tool_calls_in_order(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

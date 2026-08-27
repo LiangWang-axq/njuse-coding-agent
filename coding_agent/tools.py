@@ -167,6 +167,117 @@ class WorkspaceTools:
             "written": True,
         }
 
+    def apply_diff(self, path: str, diff: str) -> dict[str, Any]:
+        """Apply a single-file unified diff to an existing UTF-8 text file, atomically.
+
+        Every hunk must match exactly (or unambiguously after a bounded search);
+        on any failure nothing is written.
+        """
+        target = self._path(path)
+        if not target.is_file():
+            raise ToolError(f"文件不存在: {path}")
+        try:
+            current = target.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise ToolError("只支持 UTF-8 文本文件") from exc
+        hunks = self._parse_diff(diff)
+        lines = current.split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()  # drop the trailing-newline terminator
+        ends_with_newline = current.endswith("\n")
+        offset = 0
+        last_end = 0
+        added = 0
+        removed = 0
+        for index, hunk in enumerate(hunks, 1):
+            expected_old = [text for kind, text in hunk["ops"] if kind in {" ", "-"}]
+            new_block = [text for kind, text in hunk["ops"] if kind in {" ", "+"}]
+            if len(expected_old) != hunk["old_count"]:
+                raise ToolError(f"第 {index} 个 hunk 的上下文/删除行数与 @@ 头不一致")
+            if len(new_block) != hunk["new_count"]:
+                raise ToolError(f"第 {index} 个 hunk 的上下文/新增行数与 @@ 头不一致")
+            declared = hunk["old_start"] - 1 + offset
+            position = self._find_hunk_position(lines, expected_old, declared, last_end)
+            if position is None:
+                raise ToolError(f"第 {index} 个 hunk 匹配失败：找不到期望的上下文/删除内容")
+            lines[position : position + len(expected_old)] = new_block
+            offset += len(new_block) - len(expected_old)
+            last_end = position + len(new_block)
+            added += sum(1 for kind, _ in hunk["ops"] if kind == "+")
+            removed += sum(1 for kind, _ in hunk["ops"] if kind == "-")
+        new_content = "\n".join(lines)
+        if ends_with_newline:
+            new_content += "\n"
+        self.write_file(path, new_content)
+        return {
+            "path": path,
+            "hunks_applied": len(hunks),
+            "added": added,
+            "removed": removed,
+            "bytes": target.stat().st_size,
+        }
+
+    @staticmethod
+    def _parse_diff(diff: str) -> list[dict[str, Any]]:
+        """Parse a single-file unified diff into ordered hunks."""
+        if not isinstance(diff, str) or not diff.strip():
+            raise ToolError("diff 必须是非空字符串")
+        hunks: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        for raw in diff.splitlines():
+            if raw.startswith("---") or raw.startswith("+++"):
+                continue
+            if raw.startswith("@@"):
+                if current is not None:
+                    hunks.append(current)
+                match = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", raw)
+                if not match:
+                    raise ToolError(f"无法解析 hunk 头: {raw[:80]}")
+                current = {
+                    "old_start": int(match.group(1)),
+                    "old_count": int(match.group(2) or "1"),
+                    "new_count": int(match.group(4) or "1"),
+                    "ops": [],
+                }
+                continue
+            if current is None:
+                if not raw:
+                    continue
+                raise ToolError(f"diff 缺少 hunk 头（@@ 行）: {raw[:40]}")
+            if raw == "":
+                raise ToolError("hunk 内出现空行，缺少行前缀")
+            kind, text = raw[0], raw[1:]
+            if kind not in {" ", "-", "+"}:
+                raise ToolError(f"不支持的行前缀: {raw[:40]!r}")
+            current["ops"].append((kind, text))
+        if current is not None:
+            hunks.append(current)
+        if not hunks:
+            raise ToolError("diff 中没有可用的 hunk")
+        return hunks
+
+    @staticmethod
+    def _find_hunk_position(
+        lines: list[str],
+        expected: list[str],
+        declared: int,
+        last_end: int,
+    ) -> int | None:
+        """Locate a hunk block; prefer the declared position, then the single
+        unambiguous match at or after the previous hunk's end."""
+        if not expected:
+            return max(declared, last_end)
+        candidates = [
+            index
+            for index in range(last_end, len(lines) - len(expected) + 1)
+            if lines[index : index + len(expected)] == expected
+        ]
+        if declared in candidates:
+            return declared
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
+
     def run_tests(self, command: str, cwd: str = ".") -> dict[str, Any]:
         args = self._safe_test_command(command)
         run_dir = self._path(cwd)
@@ -261,6 +372,21 @@ def tool_schemas() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "apply_diff",
+            "description": "用 unified diff 精准修改工作区内单个已有文本文件（一次可含多个 hunk，全部匹配才写入）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "相对文件路径"},
+                    "diff": {
+                        "type": "string",
+                        "description": "标准 unified diff：--- a/文件 与 +++ b/文件 头、@@ -起始,行数 +起始,行数 @@，空格开头为上下文行、- 为删除行、+ 为新增行",
+                    },
+                },
+                "required": ["path", "diff"],
+            },
+        },
+        {
             "name": "write_file",
             "description": "在工作区内创建或完整写入文本文件",
             "parameters": {
@@ -351,6 +477,7 @@ class ToolRegistry:
             "search_code": impl.search_code,
             "write_file": impl.write_file,
             "replace_in_file": impl.replace_in_file,
+            "apply_diff": impl.apply_diff,
             "run_tests": impl.run_tests,
             "delete_file": impl.delete_file,
             "move_file": impl.move_file,
