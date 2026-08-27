@@ -1,6 +1,6 @@
 软件工程专业推免项目：构建编程智能体
 
-仓库地址：待创建公开仓库后填写
+仓库地址：https://github.com/LiangWang-axq/njuse-coding-agent
 
 这是一个不依赖任何 Agent 框架（LangChain、LlamaIndex、OpenAI Agents SDK、AutoGen、CrewAI 等）的 Python 命令行编程智能体。它通过 OpenAI 兼容接口调用大语言模型，自行维护对话历史与上下文压缩，解析模型返回的动作 JSON 或原生 tool calls，并在当前工作区内安全地读写、搜索、修改、删除、移动文件，查看 git 状态，运行受控测试命令，循环直至任务完成。
 
