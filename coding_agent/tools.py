@@ -56,7 +56,7 @@ class WorkspaceTools:
             if any(part in {".git", "__pycache__", ".pytest_cache"} for part in item.parts):
                 continue
             if item.is_file():
-                files.append(str(item.relative_to(self.root)))
+                files.append(item.relative_to(self.root).as_posix())
             if len(files) >= 200:
                 break
         return {"path": path, "files": files, "truncated": len(files) >= 200}
@@ -89,7 +89,7 @@ class WorkspaceTools:
                 continue
             for number, line in enumerate(lines, 1):
                 if query.lower() in line.lower():
-                    results.append(f"{item.relative_to(self.root)}:{number}: {line[:240]}")
+                    results.append(f"{item.relative_to(self.root).as_posix()}:{number}: {line[:240]}")
                     if len(results) >= 100:
                         return {"query": query, "matches": results, "truncated": True}
         return {"query": query, "matches": results, "truncated": False}
