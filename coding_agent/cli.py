@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from .agent import AgentError, CodingAgent
@@ -22,6 +23,9 @@ def _print_step(step: int, response: ParsedResponse, result: dict) -> None:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Framework-free command-line Coding Agent")
     parser.add_argument("task", nargs="*", help="要完成的编程任务；不填则进入交互输入")
     parser.add_argument("--max-steps", type=int, default=None, help="最多模型-工具循环次数")
