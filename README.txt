@@ -2,17 +2,22 @@
 
 仓库地址：待创建公开仓库后填写
 
-这是一个不依赖 LangChain、LlamaIndex、OpenAI Agents SDK、AutoGen、CrewAI 等框架的 Python 命令行 Coding Agent。它通过 OpenAI 兼容的 Chat Completions 接口与模型交互，自行维护对话历史，解析模型 JSON 动作，在当前工作区内读取文件、搜索代码、创建或修改文件，并运行受控测试命令。
+这是一个不依赖任何 Agent 框架（LangChain、LlamaIndex、OpenAI Agents SDK、AutoGen、CrewAI 等）的 Python 命令行编程智能体。它通过 OpenAI 兼容接口调用大语言模型，自行维护对话历史与上下文压缩，解析模型返回的动作 JSON 或原生 tool calls，并在当前工作区内安全地读写、搜索、修改、删除、移动文件，查看 git 状态，运行受控测试命令，循环直至任务完成。
 
-运行：
-1. 安装 Python 3.10 或更高版本。
-2. 复制 .env.example 为 .env，填写 AGENT_API_KEY 和模型名；也可直接设置环境变量。
-3. 在本目录执行：python -m coding_agent "检查项目并修复 bug，补充测试后运行测试"
-4. 不传任务文本时会进入交互输入。
+运行方法：
+1. 安装 Python 3.10 及以上；
+2. 复制 .env.example 为 .env，填写 AGENT_API_KEY（或设置环境变量）；
+3. 在本目录执行：python -m coding_agent "任务描述"。
 
-安全边界：所有文件操作只能使用工作区相对路径；拒绝绝对路径和路径穿越；禁止 Agent 写入 .env；测试命令不经过 shell，仅允许 python/pytest 的 unittest、pytest、compileall 入口，并设置超时。
+特色功能：
+- 全本地工具执行：9 个工具全部自行实现，路径锁定在工作区内，拒绝越界、绝对路径与 .env；
+- 自研上下文管理：超长历史自动压缩为摘要，控制模型输入窗口；
+- 自研输出解析：兼容 JSON 动作与原生 tool calling，支持一次多个工具调用；
+- 容错与终止：429/5xx 与超时自动重试（2 秒/4 秒退避），工具错误回传模型修正，连续解析失败或达到最大步骤数时安全终止；
+- 测试命令白名单：仅允许 python -m unittest/pytest/compileall，禁止 shell 拼接。
 
-测试：python -m unittest discover -s tests -v
-离线演示：python demo/run_offline_demo.py
+验证：
+python -m unittest discover -s tests -v
+python demo/run_offline_demo.py
 
-完整运行说明见 docs/RUNNING.md，真实任务步骤见 docs/DEMO.md。离线演示使用脚本化模型响应验证 Agent 的本地闭环，不需要暴露 API key；接入真实模型时使用上面的命令即可。
+演示任务：demo/tasks/fix_me（含 2 个故意留下的 bug，供 agent 真实修复）。
