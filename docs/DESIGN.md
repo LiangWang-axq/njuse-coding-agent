@@ -21,7 +21,7 @@ cli.py -> repl.py（交互循环）或 CodingAgent.run() -> ContextManager(histo
 - `coding_agent/context.py`：`ContextManager` 维护消息历史，超限时丢弃最旧工具结果对并插入压缩摘要，保证模型输入窗口可控。
 - `coding_agent/protocol.py`：`parse_model_response` 兼容两种协议：JSON 动作（`{"type":"tool_call"|"final"}`）与 OpenAI 原生 `tool_calls`；支持一次多个工具调用依序执行；连续两次解析失败即终止。
 - `coding_agent/provider.py`：极简 HTTP 客户端，仅走 Chat Completions 接口；`chat_stream` 自行解析 SSE（按行缓冲 `data:` 事件、`[DONE]` 终止、原生 `tool_calls` 按 index 增量拼接参数）；429/5xx/超时按 2s/4s 退避重试；网关拒绝 `tools` 参数（HTTP 400）时自动降级为纯 JSON 协议。
-- `coding_agent/tools.py`：9 个本地工具（list/read/search/write/replace/run_tests/delete/move/git_status），全部通过 `WorkspaceTools._path` 做工作区根路径校验；`run_tests` 支持 `cwd` 参数在指定的工作区子目录下执行。
+- `coding_agent/tools.py`：10 个本地工具（list/read/search/write/replace/apply_diff/run_tests/delete/move/git_status），全部通过 `WorkspaceTools._path` 做工作区根路径校验；`run_tests` 支持 `cwd` 参数在指定的工作区子目录下执行。
 - `coding_agent/config.py`、`cli.py`：配置加载与命令行入口。
 
 ## 关键设计决策
@@ -56,14 +56,17 @@ cli.py -> repl.py（交互循环）或 CodingAgent.run() -> ContextManager(histo
 ### 终止与错误处理
 
 - 正常终止：模型返回 `final`。
-- 兜底终止：达到 `max_steps`（默认 12）。
+- 兜底终止：达到 `max_steps`（默认 24）。
 - 解析终止：连续两次格式错误。
 - 错误恢复：工具执行失败（路径不存在、参数错误等）作为带错误信息的工具结果回传模型，让模型自己修正，而不是直接崩溃。
 - 网络错误：429/5xx/超时退避重试，其余 4xx 快速失败并给出可读信息。
 
+### diff 级编辑
+
+`apply_diff` 用标准 unified diff 精准修改单个已有文本文件：先解析 `@@` hunk（空格=上下文、`-`=删除、`+`=新增），按顺序逐 hunk 校验上下文与删除行是否逐字一致，任一 hunk 不匹配就整次失败且不写盘（原子应用）；定位时优先使用 `@@` 声明的位置，若声明位置不匹配则只接受文件中唯一无歧义的匹配，避免误改。新增/删除文件仍走 `write_file` / `delete_file`，保持职责单一。
+
 ## 已知限制与改进方向
 
-- 目前是整体写入 + 精确替换，无 diff 级编辑；可增加 `apply_diff` 工具。
 - 会话仅限进程内，跨重启不可续跑；可把 history 序列化保存，支持 `--resume`。
 - 无 token/成本统计；可在 provider 返回 usage 并汇总。
 - 工具串行执行；可对只读工具做并行化。
