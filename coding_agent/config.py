@@ -25,6 +25,8 @@ class Settings:
     model: str
     timeout_seconds: int = 90
     max_steps: int = 12
+    retries: int = 2
+    context_chars: int = 16_000
 
 
 def load_settings(workspace: Path | None = None) -> Settings:
@@ -37,7 +39,9 @@ def load_settings(workspace: Path | None = None) -> Settings:
     return Settings(
         base_url=value("AGENT_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
         api_key=value("AGENT_API_KEY") or value("OPENAI_API_KEY"),
-        model=value("AGENT_MODEL", "gpt-4o-mini"),
+        model=value("AGENT_MODEL", "deepseek-chat"),
         timeout_seconds=int(value("AGENT_TIMEOUT_SECONDS", "90")),
         max_steps=int(value("AGENT_MAX_STEPS", "12")),
+        retries=int(value("AGENT_RETRIES", "2")),
+        context_chars=int(value("AGENT_CONTEXT_CHARS", "16000")),
     )
