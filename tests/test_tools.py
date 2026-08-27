@@ -197,6 +197,25 @@ class NewToolTests(unittest.TestCase):
         self.assertEqual(result["hunks_applied"], 1)
         self.assertEqual(target.read_text(encoding="utf-8"), "x\ny\nZ\n")
 
+    def test_apply_diff_accepts_header_without_line_numbers(self):
+        tools = WorkspaceTools(self.root)
+        target = self.root / "greet.py"
+        target.write_text('def greet():\n    return "hi"\n', encoding="utf-8")
+        result = tools.apply_diff(
+            "greet.py",
+            '--- a/greet.py\n+++ b/greet.py\n@@\n def greet():\n-    return "hi"\n+    return "hello"\n',
+        )
+        self.assertEqual(result["hunks_applied"], 1)
+        self.assertIn('return "hello"', target.read_text(encoding="utf-8"))
+
+    def test_apply_diff_header_without_line_numbers_requires_unique_match(self):
+        tools = WorkspaceTools(self.root)
+        (self.root / "data.txt").write_text("a\nb\na\nb\n", encoding="utf-8")
+        with self.assertRaises(ToolError):
+            tools.apply_diff("data.txt", "--- a/data.txt\n+++ b/data.txt\n@@\n-b\n+b\n")
+        with self.assertRaises(ToolError):
+            tools.apply_diff("data.txt", "--- a/data.txt\n+++ b/data.txt\n@@\n+new\n")
+
     def test_apply_diff_ambiguous_match_fails(self):
         tools = WorkspaceTools(self.root)
         (self.root / "data.txt").write_text("a\nb\na\nb\n", encoding="utf-8")

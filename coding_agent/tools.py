@@ -192,11 +192,11 @@ class WorkspaceTools:
         for index, hunk in enumerate(hunks, 1):
             expected_old = [text for kind, text in hunk["ops"] if kind in {" ", "-"}]
             new_block = [text for kind, text in hunk["ops"] if kind in {" ", "+"}]
-            if len(expected_old) != hunk["old_count"]:
+            if hunk["old_count"] is not None and len(expected_old) != hunk["old_count"]:
                 raise ToolError(f"第 {index} 个 hunk 的上下文/删除行数与 @@ 头不一致")
-            if len(new_block) != hunk["new_count"]:
+            if hunk["new_count"] is not None and len(new_block) != hunk["new_count"]:
                 raise ToolError(f"第 {index} 个 hunk 的上下文/新增行数与 @@ 头不一致")
-            declared = hunk["old_start"] - 1 + offset
+            declared = hunk["old_start"] - 1 + offset if hunk["old_start"] is not None else None
             position = self._find_hunk_position(lines, expected_old, declared, last_end)
             if position is None:
                 raise ToolError(f"第 {index} 个 hunk 匹配失败：找不到期望的上下文/删除内容")
@@ -230,13 +230,15 @@ class WorkspaceTools:
             if raw.startswith("@@"):
                 if current is not None:
                     hunks.append(current)
-                match = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", raw)
+                match = re.match(r"^@@(?: -(\d+)(?:,(\d+))?)?(?: \+(\d+)(?:,(\d+))?)?(?: @@.*)?$", raw)
                 if not match:
                     raise ToolError(f"无法解析 hunk 头: {raw[:80]}")
+                old_start = int(match.group(1)) if match.group(1) is not None else None
+                new_start = int(match.group(3)) if match.group(3) is not None else None
                 current = {
-                    "old_start": int(match.group(1)),
-                    "old_count": int(match.group(2) or "1"),
-                    "new_count": int(match.group(4) or "1"),
+                    "old_start": old_start,
+                    "old_count": int(match.group(2) or "1") if old_start is not None else None,
+                    "new_count": int(match.group(4) or "1") if new_start is not None else None,
                     "ops": [],
                 }
                 continue
@@ -260,19 +262,19 @@ class WorkspaceTools:
     def _find_hunk_position(
         lines: list[str],
         expected: list[str],
-        declared: int,
+        declared: int | None,
         last_end: int,
     ) -> int | None:
         """Locate a hunk block; prefer the declared position, then the single
         unambiguous match at or after the previous hunk's end."""
         if not expected:
-            return max(declared, last_end)
+            return max(declared, last_end) if declared is not None else None
         candidates = [
             index
             for index in range(last_end, len(lines) - len(expected) + 1)
             if lines[index : index + len(expected)] == expected
         ]
-        if declared in candidates:
+        if declared is not None and declared in candidates:
             return declared
         if len(candidates) == 1:
             return candidates[0]
