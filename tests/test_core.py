@@ -14,7 +14,7 @@ class ScriptedProvider:
     def __init__(self, responses):
         self.responses = iter(responses)
 
-    def chat(self, messages):
+    def chat(self, messages, tools=None, tool_choice=None):
         return next(self.responses)
 
 
@@ -29,6 +29,21 @@ class ProtocolTests(unittest.TestCase):
         response = parse_model_response({"tool_calls": [{"function": {"name": "list_files", "arguments": "{}"}}]})
         self.assertEqual(response.tool, "list_files")
         self.assertEqual(response.arguments, {})
+
+    def test_parses_multiple_native_tool_calls(self):
+        response = parse_model_response(
+            {
+                "tool_calls": [
+                    {"function": {"name": "read_file", "arguments": '{"path": "a.py"}'}},
+                    {"function": {"name": "search_code", "arguments": '{"query": "TODO"}'}},
+                ]
+            }
+        )
+        self.assertEqual(response.kind, "tool")
+        self.assertEqual(len(response.calls), 2)
+        self.assertEqual(response.calls[0].tool, "read_file")
+        self.assertEqual(response.calls[0].arguments, {"path": "a.py"})
+        self.assertEqual(response.calls[1].tool, "search_code")
 
 
 class WorkspaceTests(unittest.TestCase):
@@ -60,6 +75,42 @@ class WorkspaceTests(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertIn("通过测试", result.message)
             self.assertIn("return a + b", (root / "calculator.py").read_text(encoding="utf-8"))
+
+    def test_agent_executes_multiple_native_tool_calls_in_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "a.py").write_text("x = 1\n", encoding="utf-8")
+            provider = ScriptedProvider(
+                [
+                    {
+                        "tool_calls": [
+                            {"function": {"name": "read_file", "arguments": '{"path": "a.py"}'}},
+                            {"function": {"name": "list_files", "arguments": '{"path": "."}'}},
+                        ]
+                    },
+                    json.dumps({"type": "final", "message": "检查完毕"}),
+                ]
+            )
+            result = CodingAgent(root, provider, max_steps=4).run("检查项目")
+            self.assertTrue(result.success)
+            self.assertIn("检查完毕", result.message)
+
+    def test_agent_on_step_callback_reports_tool_executions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider = ScriptedProvider(
+                [
+                    json.dumps({"type": "tool_call", "tool": "list_files", "arguments": {"path": "."}}),
+                    json.dumps({"type": "final", "message": "完成"}),
+                ]
+            )
+            seen: list[tuple[int, str]] = []
+            result = CodingAgent(root, provider, max_steps=4).run(
+                "查看文件",
+                on_step=lambda step, response, outcome: seen.append((step, response.tool or "")),
+            )
+            self.assertTrue(result.success)
+            self.assertEqual(seen, [(1, "list_files")])
 
 
 if __name__ == "__main__":

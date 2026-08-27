@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from .agent import AgentError, CodingAgent
 from .config import load_settings
+from .protocol import ParsedResponse
 from .provider import OpenAICompatibleProvider
+
+
+def _print_step(step: int, response: ParsedResponse, result: dict) -> None:
+    arguments = json.dumps(response.arguments or {}, ensure_ascii=False)
+    if len(arguments) > 120:
+        arguments = arguments[:120] + "…"
+    if result.get("ok"):
+        status = "OK"
+    else:
+        status = f"错误: {str(result.get('error', ''))[:100]}"
+    print(f"[步骤 {step}] {response.tool}({arguments}) -> {status}")
 
 
 def main() -> int:
@@ -24,7 +37,7 @@ def main() -> int:
         settings.context_chars,
     )
     try:
-        result = agent.run(task)
+        result = agent.run(task, on_step=_print_step)
     except AgentError as exc:
         print(f"Agent 失败: {exc}")
         return 1

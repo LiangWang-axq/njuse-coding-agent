@@ -85,6 +85,26 @@ class ProviderRetryTests(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 2)
         self.assertEqual(sleep.call_count, 1)
 
+    def test_falls_back_to_json_protocol_when_tools_rejected(self):
+        provider = self._provider()
+        with mock.patch("coding_agent.provider.time.sleep") as sleep, mock.patch(
+            "coding_agent.provider.urllib.request.urlopen",
+            side_effect=[
+                http_error(400),
+                FakeResponse({"choices": [{"message": {"content": "ok"}}]}),
+            ],
+        ) as urlopen:
+            result = provider.chat(
+                [{"role": "user", "content": "hi"}],
+                tools=[{"type": "function", "function": {"name": "list_files"}}],
+                tool_choice="auto",
+            )
+        self.assertEqual(result, "ok")
+        self.assertEqual(urlopen.call_count, 2)
+        body = json.loads(urlopen.call_args_list[1].args[0].data)
+        self.assertNotIn("tools", body)
+        self.assertFalse(sleep.called)
+
 
 if __name__ == "__main__":
     unittest.main()
