@@ -91,6 +91,23 @@ class NewToolTests(unittest.TestCase):
         args = WorkspaceTools._safe_test_command('python -m unittest discover -s tests -p "test_*.py"')
         self.assertEqual(args, ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"])
 
+    def test_list_files_uses_forward_slashes(self):
+        tools = WorkspaceTools(self.root)
+        sub = self.root / "sub"
+        sub.mkdir()
+        (sub / "nested.py").write_text("x = 1\n", encoding="utf-8")
+        files = tools.list_files()["files"]
+        self.assertIn("sub/nested.py", files)
+        self.assertFalse(any("\\" in name for name in files))
+
+    def test_search_code_uses_forward_slashes(self):
+        tools = WorkspaceTools(self.root)
+        sub = self.root / "sub"
+        sub.mkdir()
+        (sub / "nested.py").write_text("target_value = 1\n", encoding="utf-8")
+        matches = tools.search_code("target_value")["matches"]
+        self.assertTrue(any(match.startswith("sub/nested.py:") for match in matches))
+
 
 if __name__ == "__main__":
     unittest.main()
