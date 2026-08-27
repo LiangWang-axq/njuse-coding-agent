@@ -16,6 +16,8 @@
 2. 运行：
 
    ```powershell
+   cd demo/tasks/fix_me
+   $env:PYTHONPATH = "..\.."
    python -m coding_agent "检查订单计算模块，修复金额格式化与折扣计算的 bug，运行测试直到全部通过"
    ```
 
