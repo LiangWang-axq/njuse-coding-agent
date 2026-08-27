@@ -18,7 +18,7 @@
    `tool_schemas()` 集中声明 9 个工具的名称、描述和 JSON Schema 参数；`ToolRegistry` 映射到本地实现；所有文件操作经 `_path` 校验后才执行。
 
 6. **安全性如何保证？**
-   所有路径解析后必须是工作区内的相对路径，拒绝绝对路径、盘符、`..` 和 `.env`；`run_tests` 不经 shell，仅允许 `python -m unittest/pytest/compileall`，禁拼接、120 秒超时；`git_status` 参数固定且只读。
+   所有路径解析后必须是工作区内的相对路径，拒绝绝对路径、盘符、`..` 和 `.env`；`run_tests` 不经 shell，仅允许 `python -m unittest/pytest/compileall`，禁拼接、120 秒超时，可用 `cwd` 指定工作区内相对目录（仍锁定在工作区）；`git_status` 参数固定且只读。
 
 7. **循环如何终止？**
    三层保障：模型返回 `final` 正常结束；达到 `max_steps`（默认 12）强制停止；连续两次输出格式错误立即失败。工具错误不会终止，而是回传模型让其修正。
@@ -49,3 +49,12 @@
 
 16. **为什么这一步调用了某个工具？**（追问型）
     对任意具体调用，都可以从终端输出的 `[步骤 N] 工具名 -> OK` 回放：它对应主循环的哪一轮、参数是什么、结果如何回填、模型下一步据此做了什么。答辩前建议把演示视频的每一步与 `docs/DESIGN.md` 对应一遍。
+
+17. **流式输出是怎么实现的？**
+    `chat_stream` 自行解析 SSE：按行缓冲 `data:` 事件、`[DONE]` 终止；文本 `delta` 直接回调终端逐字显示；原生 `tool_calls` 在流中按 `index` 增量拼接 `id/name/arguments`，结束时 `json.loads` 校验后交给与普通请求相同的 `parse_model_response`。重试只发生在首块数据到达前，避免重复输出。
+
+18. **多轮对话如何保持上下文？**
+    `CodingAgent` 持有同一个 `ContextManager`，`run()` 首次调用创建、后续调用复用，用户新消息直接追加，超限时仍走原有压缩摘要；`/new` 调用 `reset()` 清空历史。
+
+19. **为什么终端界面不用 Rich/Textual？**
+    保持“仅标准库”的项目卖点。ANSI 颜色 + `ctypes` 开启 Windows VT 处理，非 TTY 或 `NO_COLOR` 时自动去色；斜杠命令与流式渲染都是自研实现，答辩可以展开。
