@@ -30,24 +30,37 @@ class OpenAICompatibleProvider:
         self.model = model
         self.timeout_seconds = timeout_seconds
         self.retries = max(0, int(retries))
+        self._tools_supported = True
 
-    def chat(self, messages: list[dict[str, str]]) -> str | dict[str, Any]:
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+    ) -> str | dict[str, Any]:
         if not self.api_key:
             raise ProviderError("未找到 API key，请设置 AGENT_API_KEY 或 OPENAI_API_KEY")
-        body = json.dumps(
-            {"model": self.model, "messages": messages, "temperature": 0.1},
-            ensure_ascii=False,
-        ).encode("utf-8")
+        body: dict[str, Any] = {"model": self.model, "messages": messages, "temperature": 0.1}
+        if tools and self._tools_supported:
+            body["tools"] = tools
+            body["tool_choice"] = tool_choice or "auto"
         request = urllib.request.Request(
             self.endpoint,
-            data=body,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             },
             method="POST",
         )
-        payload = self._request_with_retry(request)
+        try:
+            payload = self._request_with_retry(request)
+        except ProviderError as exc:
+            if tools and self._tools_supported and "HTTP 400" in str(exc):
+                # Gateway may not support native tool calling; fall back to JSON protocol.
+                self._tools_supported = False
+                return self.chat(messages)
+            raise
         try:
             message = payload["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as exc:

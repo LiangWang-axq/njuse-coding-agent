@@ -25,7 +25,7 @@ class DemoProvider:
             {"type": "final", "message": "已补充回归测试，先复现失败，再修复 Todo 编号删除逻辑，最终测试通过。"},
         ])
 
-    def chat(self, messages):
+    def chat(self, messages, tools=None, tool_choice=None):
         return next(self.responses)
 
 

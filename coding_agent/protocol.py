@@ -15,6 +15,7 @@ class ParsedResponse:
     tool: str | None = None
     arguments: dict[str, Any] | None = None
     message: str = ""
+    calls: tuple["ParsedResponse", ...] = ()
 
 
 def _first_json_object(text: str) -> Any | None:
@@ -67,12 +68,10 @@ def parse_model_response(raw: str | dict[str, Any]) -> ParsedResponse:
 
     native_calls = payload.get("tool_calls")
     if isinstance(native_calls, list) and native_calls:
-        call = native_calls[0]
-        function = call.get("function", {})
-        arguments = function.get("arguments", {})
-        if isinstance(arguments, str):
-            arguments = json.loads(arguments)
-        return _tool_response(function.get("name"), arguments)
+        calls = tuple(_native_call(call) for call in native_calls[:8])
+        if len(calls) == 1:
+            return calls[0]
+        return ParsedResponse(kind="tool", calls=calls)
 
     kind = payload.get("type", payload.get("action"))
     if kind in {"tool", "tool_call", "call"}:
@@ -89,6 +88,26 @@ def parse_model_response(raw: str | dict[str, Any]) -> ParsedResponse:
 def _tool_response(name: Any, arguments: Any) -> ParsedResponse:
     if not isinstance(name, str) or not name:
         raise ProtocolError("工具调用缺少工具名")
+    if not isinstance(arguments, dict):
+        raise ProtocolError("工具参数必须是 JSON 对象")
+    return ParsedResponse(kind="tool", tool=name, arguments=arguments)
+
+
+def _native_call(call: Any) -> ParsedResponse:
+    if not isinstance(call, dict):
+        raise ProtocolError("tool_calls 元素必须是对象")
+    function = call.get("function")
+    if not isinstance(function, dict):
+        raise ProtocolError("tool_calls 缺少 function 字段")
+    name = function.get("name")
+    if not isinstance(name, str) or not name:
+        raise ProtocolError("工具调用缺少工具名")
+    arguments = function.get("arguments", {})
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except json.JSONDecodeError as exc:
+            raise ProtocolError(f"tool_calls 参数不是合法 JSON: {exc}") from exc
     if not isinstance(arguments, dict):
         raise ProtocolError("工具参数必须是 JSON 对象")
     return ParsedResponse(kind="tool", tool=name, arguments=arguments)
