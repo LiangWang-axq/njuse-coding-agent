@@ -17,7 +17,12 @@ def main() -> int:
     task = " ".join(args.task).strip() or input("任务: ").strip()
     settings = load_settings(workspace)
     provider = OpenAICompatibleProvider(settings.base_url, settings.api_key, settings.model, settings.timeout_seconds)
-    agent = CodingAgent(workspace, provider, args.max_steps or settings.max_steps)
+    agent = CodingAgent(
+        workspace,
+        provider,
+        args.max_steps or settings.max_steps,
+        settings.context_chars,
+    )
     try:
         result = agent.run(task)
     except AgentError as exc:

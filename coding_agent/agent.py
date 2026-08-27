@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from .context import ContextManager
 from .protocol import ParsedResponse, ProtocolError, parse_model_response
 from .tools import ToolError, ToolRegistry, tool_schemas
 
@@ -26,46 +27,49 @@ class AgentResult:
 
 
 class CodingAgent:
-    def __init__(self, workspace: Path, provider: ChatProvider, max_steps: int = 12):
+    def __init__(
+        self,
+        workspace: Path,
+        provider: ChatProvider,
+        max_steps: int = 12,
+        context_chars: int = 16_000,
+    ):
         self.workspace = workspace.resolve()
         self.provider = provider
         self.tools = ToolRegistry(self.workspace)
         self.max_steps = max(1, max_steps)
+        self.context_chars = max(1024, int(context_chars))
 
     def run(self, task: str) -> AgentResult:
         if not task.strip():
             raise AgentError("任务不能为空")
-        history: list[dict[str, str]] = [
-            {"role": "system", "content": self._system_prompt()},
-            {"role": "user", "content": task.strip()},
-        ]
+        context = ContextManager(self._system_prompt(), self.context_chars)
+        context.append("user", task.strip())
         parse_failures = 0
         for step in range(1, self.max_steps + 1):
             try:
-                raw = self.provider.chat(history)
+                raw = self.provider.chat(context.messages)
             except Exception as exc:
                 raise AgentError(f"第 {step} 步模型调用失败: {exc}") from exc
             assistant_content = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
-            history.append({"role": "assistant", "content": assistant_content})
+            context.append("assistant", assistant_content)
             try:
                 response = parse_model_response(raw)
             except (ProtocolError, json.JSONDecodeError) as exc:
                 parse_failures += 1
                 if parse_failures >= 2:
                     raise AgentError(f"模型输出连续解析失败: {exc}") from exc
-                history.append({"role": "user", "content": f"输出格式错误：{exc}。请只返回合法 JSON 动作。"})
+                context.append("user", f"输出格式错误：{exc}。请只返回合法 JSON 动作。")
                 continue
             parse_failures = 0
             if response.kind == "final":
-                return AgentResult(True, response.message, step, history)
+                return AgentResult(True, response.message, step, context.messages)
             result = self._execute(response)
-            history.append(
-                {
-                    "role": "user",
-                    "content": "工具结果 " + json.dumps(result, ensure_ascii=False) + "\n请继续完成任务；完成后返回 final。",
-                }
+            context.append(
+                "user",
+                "工具结果 " + json.dumps(result, ensure_ascii=False) + "\n请继续完成任务；完成后返回 final。",
             )
-        return AgentResult(False, f"达到最大步骤数 {self.max_steps}，任务尚未确认完成。", self.max_steps, history)
+        return AgentResult(False, f"达到最大步骤数 {self.max_steps}，任务尚未确认完成。", self.max_steps, context.messages)
 
     def _execute(self, response: ParsedResponse) -> dict[str, Any]:
         assert response.tool is not None and response.arguments is not None
