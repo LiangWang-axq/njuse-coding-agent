@@ -167,8 +167,11 @@ class WorkspaceTools:
             "written": True,
         }
 
-    def run_tests(self, command: str) -> dict[str, Any]:
+    def run_tests(self, command: str, cwd: str = ".") -> dict[str, Any]:
         args = self._safe_test_command(command)
+        run_dir = self._path(cwd)
+        if not run_dir.is_dir():
+            raise ToolError(f"cwd 不是目录: {cwd}")
         executable = args[0].lower()
         if executable in {"python", "python.exe", "py", "py.exe"}:
             args[0] = sys.executable
@@ -177,7 +180,7 @@ class WorkspaceTools:
         try:
             completed = subprocess.run(
                 args,
-                cwd=self.root,
+                cwd=run_dir,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -186,9 +189,10 @@ class WorkspaceTools:
                 shell=False,
             )
         except subprocess.TimeoutExpired as exc:
-            return {"command": command, "returncode": -1, "stdout": str(exc.stdout or ""), "stderr": "测试命令超时"}
+            return {"command": command, "cwd": cwd, "returncode": -1, "stdout": str(exc.stdout or ""), "stderr": "测试命令超时"}
         return {
             "command": command,
+            "cwd": cwd,
             "returncode": completed.returncode,
             "passed": completed.returncode == 0,
             "stdout": completed.stdout[-12_000:],
@@ -202,12 +206,13 @@ class WorkspaceTools:
         if any(mark in command for mark in [";", "&&", "||", "|", ">", "<", "`", "$", "\n", "\r"]):
             raise ToolError("测试命令不允许 shell 拼接、重定向或脚本展开")
         try:
-            args = shlex.split(command, posix=False)
+            raw_args = shlex.split(command, posix=False)
         except ValueError as exc:
             raise ToolError(f"无法解析测试命令: {exc}") from exc
+        args = [arg.strip('"') for arg in raw_args]
         if not args:
             raise ToolError("command 必须是非空字符串")
-        executable = args[0].lower().strip('"')
+        executable = args[0].lower()
         allowed = {"python", "python.exe", "py", "py.exe", "pytest", "pytest.exe"}
         if executable not in allowed:
             raise ToolError("仅允许 python/pytest 测试命令")
@@ -215,8 +220,7 @@ class WorkspaceTools:
             if len(args) < 3 or args[1] != "-m" or args[2] not in {"unittest", "pytest", "compileall"}:
                 raise ToolError("Python 仅允许 -m unittest、-m pytest 或 -m compileall")
         for arg in args[1:]:
-            clean = arg.strip('"')
-            if Path(clean).is_absolute() or re.match(r"^[A-Za-z]:", clean) or ".." in Path(clean).parts:
+            if Path(arg).is_absolute() or re.match(r"^[A-Za-z]:", arg) or ".." in Path(arg).parts:
                 raise ToolError("测试命令参数不能指向工作区之外")
         return args
 
@@ -284,11 +288,12 @@ def tool_schemas() -> list[dict[str, Any]]:
         },
         {
             "name": "run_tests",
-            "description": "在工作区根目录运行受控测试命令",
+            "description": "运行受控测试命令；任务针对子目录时用 cwd 指定相对目录",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "python -m unittest ... 或 python -m pytest ..."}
+                    "command": {"type": "string", "description": "python -m unittest ... 或 python -m pytest ..."},
+                    "cwd": {"type": "string", "description": "测试执行目录（相对工作区根目录），默认 ."},
                 },
                 "required": ["command"],
             },

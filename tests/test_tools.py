@@ -60,6 +60,37 @@ class NewToolTests(unittest.TestCase):
         with self.assertRaises(ToolError):
             tools.git_status()
 
+    def test_run_tests_with_cwd_runs_in_subdirectory(self):
+        tools = WorkspaceTools(self.root)
+        sub = self.root / "sub"
+        sub.mkdir()
+        (sub / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+        tests = sub / "tests"
+        tests.mkdir()
+        (tests / "test_calc.py").write_text(
+            "import unittest\nfrom calc import add\n\n"
+            "class TestCalc(unittest.TestCase):\n"
+            "    def test_add(self):\n"
+            "        self.assertEqual(add(1, 2), 3)\n\n"
+            "if __name__ == '__main__':\n"
+            "    unittest.main()\n",
+            encoding="utf-8",
+        )
+        result = tools.run_tests("python -m unittest discover -s tests -v", cwd="sub")
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["cwd"], "sub")
+
+    def test_run_tests_rejects_bad_cwd(self):
+        tools = WorkspaceTools(self.root)
+        with self.assertRaises(ToolError):
+            tools.run_tests("python -m unittest", cwd="missing")
+        with self.assertRaises(ValueError):
+            tools.run_tests("python -m unittest", cwd="..")
+
+    def test_safe_command_strips_surrounding_quotes(self):
+        args = WorkspaceTools._safe_test_command('python -m unittest discover -s tests -p "test_*.py"')
+        self.assertEqual(args, ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"])
+
 
 if __name__ == "__main__":
     unittest.main()
