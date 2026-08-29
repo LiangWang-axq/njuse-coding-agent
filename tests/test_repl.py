@@ -6,6 +6,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from coding_agent import ui
@@ -18,6 +19,10 @@ class StubAgent:
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self.reset_calls = 0
+        self.session = SimpleNamespace(
+            session_id="test-session",
+            path=Path(workspace) / ".coding_agent" / "sessions" / "test.jsonl",
+        )
 
     def reset(self):
         self.reset_calls += 1
@@ -55,12 +60,36 @@ class ToolCallFormatTests(unittest.TestCase):
             {"ok": True, "result": {}},
         )
         self.assertIn("read_file", ok)
-        self.assertIn("OK", ok)
+        self.assertIn("成功", ok)
         err = ui.format_tool_call(
             ParsedResponse("tool", tool="read_file", arguments={"path": "a.py"}),
             {"ok": False, "error": "文件不存在"},
         )
         self.assertIn("错误", err)
+
+    def test_read_file_card_shows_path_and_chars(self):
+        card = ui.format_tool_call(
+            ParsedResponse("tool", tool="read_file", arguments={"path": "a.py"}),
+            {"ok": True, "result": {"path": "a.py", "content": "x" * 50, "truncated": False}},
+        )
+        self.assertIn("a.py", card)
+        self.assertIn("50 字符", card)
+
+    def test_failed_run_tests_card_shows_output_tail(self):
+        card = ui.format_tool_call(
+            ParsedResponse("tool", tool="run_tests", arguments={"command": "python -m unittest"}),
+            {
+                "ok": True,
+                "result": {"passed": False, "returncode": 1, "stdout": "FAILED (failures=1)"},
+            },
+        )
+        self.assertIn("失败", card)
+        self.assertIn("FAILED", card)
+
+    def test_format_compression_stats(self):
+        rendered = ui.format_compression_stats({"L3": 2, "L2": 5, "L4": 1})
+        self.assertEqual(rendered, "大结果落盘 2 次 · 旧结果压缩 5 次 · LLM 摘要 1 次")
+        self.assertEqual(ui.format_compression_stats({}), "无")
 
     def test_run_tests_shows_pass_fail(self):
         passed = ui.format_tool_call(
@@ -106,6 +135,15 @@ class ReplTests(unittest.TestCase):
             with mock.patch("builtins.input", side_effect=EOFError):
                 code = run_repl(agent, make_settings())
         self.assertEqual(code, 0)
+
+    def test_status_shows_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = StubAgent(Path(directory))
+            output = StringIO()
+            with mock.patch("builtins.input", side_effect=["/status", "/exit"]), redirect_stdout(output):
+                code = run_repl(agent, make_settings())
+        self.assertEqual(code, 0)
+        self.assertIn("test-session", output.getvalue())
 
 
 if __name__ == "__main__":

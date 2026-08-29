@@ -7,6 +7,7 @@ from pathlib import Path
 
 from coding_agent.agent import CodingAgent
 from coding_agent.protocol import parse_model_response
+from coding_agent.session import Session, latest_session_path, sessions_dir
 from coding_agent.tools import ToolError, WorkspaceTools
 
 
@@ -25,6 +26,35 @@ class StreamingScriptedProvider:
     def chat_stream(self, messages, tools=None, tool_choice=None):
         for event in next(self.event_lists):
             yield event
+
+
+class RecordingProvider:
+    def __init__(self, response):
+        self.response = response
+        self.calls: list[list[dict[str, str]]] = []
+        self.last_usage: dict[str, int] | None = None
+
+    def chat(self, messages, tools=None, tool_choice=None):
+        self.calls.append(messages)
+        self.last_usage = {
+            "prompt_tokens": 100 + 10 * len(self.calls),
+            "completion_tokens": 20,
+            "total_tokens": 120 + 10 * len(self.calls),
+        }
+        return self.response
+
+
+class SummaryAwareProvider:
+    """主调用走脚本响应；摘要调用（tools=None）返回结构化摘要。"""
+
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.last_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+
+    def chat(self, messages, tools=None, tool_choice=None):
+        if tools is None and messages and messages[0]["content"].startswith("你是一个上下文摘要助手"):
+            return "<analysis>分析</analysis>\n<summary>## 目标\n继续任务</summary>"
+        return next(self.responses)
 
 
 class ProtocolTests(unittest.TestCase):
@@ -136,6 +166,38 @@ class WorkspaceTests(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertEqual(seen, [(1, "list_files")])
 
+    def test_agent_reports_compression_events_and_stats(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session = Session(root / ".coding_agent" / "sessions" / "seed.jsonl")
+            for _ in range(6):
+                session.add("user", "任务 " + "x" * 500)
+                session.add("assistant", "回复 " + "y" * 500)
+            provider = SummaryAwareProvider([json.dumps({"type": "final", "message": "完成"})])
+            events: list[list[str]] = []
+            agent = CodingAgent(root, provider, max_steps=4, context_chars=1024, session=session)
+            result = agent.run("新任务", on_context=events.append)
+            self.assertTrue(result.success)
+            self.assertTrue(events)
+            self.assertTrue(any("L4" in event for event_list in events for event in event_list))
+            self.assertEqual(agent.compression_stats.get("L4"), 1)
+
+    def test_agent_aggregates_usage_across_turn(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider = ScriptedProvider(
+                [
+                    json.dumps({"type": "tool_call", "tool": "list_files", "arguments": {"path": "."}}),
+                    json.dumps({"type": "final", "message": "完成"}),
+                ]
+            )
+            provider.last_usage = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
+            agent = CodingAgent(root, provider, max_steps=4)
+            result = agent.run("查看文件")
+            self.assertTrue(result.success)
+            self.assertEqual(result.usage, {"prompt_tokens": 200, "completion_tokens": 40, "total_tokens": 240})
+            self.assertEqual(result.budget_tokens, 4000)
+
     def test_agent_reuses_history_across_runs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -156,6 +218,81 @@ class WorkspaceTests(unittest.TestCase):
             contents = " ".join(m["content"] for m in history)
             self.assertIn("任务一", contents)
             self.assertIn("任务二", contents)
+
+    def test_agent_persists_messages_to_session_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider = ScriptedProvider(
+                [
+                    json.dumps({"type": "tool_call", "tool": "list_files", "arguments": {"path": "."}}),
+                    json.dumps({"type": "final", "message": "完成"}),
+                ]
+            )
+            agent = CodingAgent(root, provider, max_steps=4)
+            result = agent.run("查看文件")
+            self.assertTrue(result.success)
+            path = latest_session_path(root)
+            self.assertIsNotNone(path)
+            self.assertTrue(path.is_file())
+            session = Session.load(path)
+            contents = " ".join(m["content"] for m in session.messages)
+            self.assertIn("查看文件", contents)
+            self.assertIn("list_files", contents)
+            self.assertIn("完成", contents)
+
+    def test_system_prompt_contains_convergence_rules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider = ScriptedProvider([json.dumps({"type": "final", "message": "完成"})])
+            agent = CodingAgent(root, provider, max_steps=4)
+            system = agent._init_context().messages[0]["content"]
+            self.assertIn("收敛规则", system)
+            self.assertIn("立即返回 final", system)
+            self.assertIn("compileall", system)
+            self.assertIn("python -c", system)
+            self.assertIn('{"type":"tool_call"', system)  # 提示词中的转义引号渲染正确
+
+    def test_agent_resumes_from_session_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = ScriptedProvider([json.dumps({"type": "final", "message": "第一轮完成"})])
+            agent = CodingAgent(root, first, max_steps=4)
+            agent.run("任务一")
+            path = latest_session_path(root)
+            self.assertIsNotNone(path)
+            session = Session.load(path)
+
+            second = RecordingProvider(json.dumps({"type": "final", "message": "第二轮完成"}))
+            resumed = CodingAgent(root, second, max_steps=4, session=session)
+            result = resumed.run("任务二")
+            self.assertTrue(result.success)
+            self.assertEqual(result.message, "第二轮完成")
+            self.assertTrue(second.calls)
+            sent = second.calls[0]
+            roles_and_content = [(m["role"], m["content"]) for m in sent]
+            self.assertIn(("user", "任务一"), roles_and_content)  # 历史已恢复
+            self.assertIn(("user", "任务二"), roles_and_content)
+
+    def test_reset_starts_new_session_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            provider = ScriptedProvider(
+                [
+                    json.dumps({"type": "final", "message": "第一轮"}),
+                    json.dumps({"type": "final", "message": "第二轮"}),
+                ]
+            )
+            agent = CodingAgent(root, provider, max_steps=4)
+            agent.run("任务一")
+            first_id = agent.session.session_id
+            first_path = agent.session.path
+            self.assertTrue(first_path.is_file())
+            agent.reset()
+            agent.run("任务二")
+            self.assertNotEqual(agent.session.session_id, first_id)
+            self.assertNotEqual(agent.session.path, first_path)
+            self.assertTrue(first_path.is_file())  # 旧会话保留
+            self.assertEqual(len(list(sessions_dir(root).glob("*.jsonl"))), 2)
 
     def test_reset_clears_history(self):
         with tempfile.TemporaryDirectory() as directory:
