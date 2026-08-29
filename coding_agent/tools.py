@@ -53,7 +53,7 @@ class WorkspaceTools:
             raise ToolError(f"不是目录: {path}")
         files = []
         for item in sorted(base.rglob("*")):
-            if any(part in {".git", "__pycache__", ".pytest_cache"} for part in item.parts):
+            if any(part in {".git", "__pycache__", ".pytest_cache", ".coding_agent"} for part in item.parts):
                 continue
             if item.is_file():
                 files.append(item.relative_to(self.root).as_posix())
@@ -81,7 +81,7 @@ class WorkspaceTools:
         results: list[str] = []
         candidates = [base] if base.is_file() else base.rglob("*")
         for item in candidates:
-            if not item.is_file() or any(part in {".git", "__pycache__", ".pytest_cache"} for part in item.parts):
+            if not item.is_file() or any(part in {".git", "__pycache__", ".pytest_cache", ".coding_agent"} for part in item.parts):
                 continue
             try:
                 lines = item.read_text(encoding="utf-8").splitlines()

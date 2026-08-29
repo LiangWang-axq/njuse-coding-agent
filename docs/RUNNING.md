@@ -36,6 +36,12 @@ $env:AGENT_API_KEY = "你的本地密钥"
 python -m coding_agent
 ```
 
+想接着上次的会话继续聊（跨进程/跨重启），加 `--resume`：
+
+```powershell
+python -m coding_agent --resume
+```
+
 进入对话界面后直接输入任务即可：
 
 ```text
@@ -44,23 +50,34 @@ Coding Agent 交互模式
 直接输入任务开始对话，输入 /help 查看命令。
 你 > 检查订单计算模块，修复 bug 并运行测试
 Agent > 我先查看一下相关文件……
-  [工具] read_file("orders.py") -> OK
-  [工具] run_tests("python -m unittest ...") -> 通过
-（本轮 5 步 · 累计 5 步）
+  [步骤 2] read_file
+    参数: {
+      "path": "orders.py"
+    }
+    结果: 成功 · orders.py · 812 字符
+  [步骤 4] run_tests
+    参数: {
+      "command": "python -m unittest discover -s tests -v"
+    }
+    结果: 失败 (returncode 1)
+        输出尾: FAILED (failures=2)
+  [上下文] L2 压缩 3 条旧工具结果
+（本轮 6 步 · 累计 6 步 · token prompt 4321 / completion 258 · 预算 4000）
 你 >
 ```
 
-可用命令：`/help`、`/status`（工作区/模型/累计步骤）、`/new`（清空历史开始新任务）、`/exit`（或 `/quit`）。`Ctrl+C` 在输入时退出程序，在任务执行中取消当前轮并保留历史；`Ctrl+D/Z`（EOF）正常退出。多轮任务在同一进程内共享历史。
+可用命令：`/help`、`/status`（工作区/模型/会话/压缩统计/token 用量/累计步骤）、`/new`（清空历史并开始新会话，旧会话仍可用 `--resume` 恢复）、`/exit`（或 `/quit`）。`Ctrl+C` 在输入时退出程序，在任务执行中取消当前轮并保留历史；`Ctrl+D/Z`（EOF）正常退出。多轮任务在同一进程内共享历史，且每条消息原子落盘到 `<工作区>/.coding_agent/sessions/`。
 
 ### 一次性模式
 
 ```powershell
 python -m coding_agent "检查 demo/tasks/fix_me，修复订单计算 bug，补充测试并运行测试"
+python -m coding_agent --resume "继续上次任务"
 ```
 
 执行完自动退出，退出码 0 表示成功、1 表示 Agent 错误、2 表示达到最大步骤未完成。模型回答同样流式输出，工具调用以 `[步骤 N]` 彩色行展示。
 
-模型每轮返回一个 JSON 动作或原生 tool call。工具调用格式为：
+模型每轮返回一个 JSON 动作或原生 tool call。工具调用以多行卡片展示（工具名、参数、结果摘要、测试输出尾部）；压缩发生时打印 `[上下文] …` 提示，每轮结束显示 token 用量/估算与预算。工具动作格式为：
 
 ```json
 {"type":"tool_call","tool":"read_file","arguments":{"path":"README.txt"}}
@@ -80,7 +97,7 @@ CLI 会打印每一步 `[步骤 N] 工具名(参数) -> OK/错误`，便于观�
 
 ## 上下文与重试
 
-历史超出 `AGENT_CONTEXT_CHARS` 时自动丢弃最旧工具结果并插入压缩摘要；模型服务 429/5xx/超时按 `AGENT_RETRIES` 次退避重试（2s/4s）；网关不支持原生 tools 时自动降级为纯 JSON 协议。
+`ContextManager` 保存完整历史，调用模型前由 `prepare()` 生成压缩视图：超大工具结果先落盘到 `.coding_agent/results/`（视图保留预览），消息数/字符超限时依次做中间裁切、旧结果一行摘要，仍超限才调用模型生成 `<summary>` 结构化摘要；并用真实 `usage` 校准 token 估算。模型服务 429/5xx/超时按 `AGENT_RETRIES` 次退避重试（2s/4s）；网关不支持原生 tools 时自动降级为纯 JSON 协议。
 
 ## 验证
 

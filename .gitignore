@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.coding_agent/
 demo/.runtime/
 test_run/
 .ob1/

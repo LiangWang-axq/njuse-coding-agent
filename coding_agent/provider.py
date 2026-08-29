@@ -32,6 +32,8 @@ class OpenAICompatibleProvider:
         self.timeout_seconds = timeout_seconds
         self.retries = max(0, int(retries))
         self._tools_supported = True
+        self.last_usage: dict[str, Any] | None = None  # 最近一次调用的 usage（供上下文校准）
+        self._stream_usage: dict[str, Any] | None = None
 
     def _build_request(
         self,
@@ -77,6 +79,8 @@ class OpenAICompatibleProvider:
             message = payload["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderError("模型响应缺少 choices[0].message") from exc
+        usage = payload.get("usage")
+        self.last_usage = usage if isinstance(usage, dict) else None
         if message.get("tool_calls"):
             return {"tool_calls": message["tool_calls"]}
         content = message.get("content")
@@ -116,6 +120,9 @@ class OpenAICompatibleProvider:
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+                usage = chunk.get("usage")
+                if isinstance(usage, dict):
+                    self._stream_usage = usage
                 for event in self._handle_chunk(chunk, pending_calls):
                     if event["type"] == "text":
                         text_chars += len(event["delta"])
@@ -124,6 +131,7 @@ class OpenAICompatibleProvider:
             raise ProviderError(f"流式响应中断: {exc}") from exc
         finally:
             response.close()
+        self.last_usage = self._stream_usage
         if pending_calls:
             yield {"type": "tool_calls", "tool_calls": self._finalize_tool_calls(pending_calls)}
             return
