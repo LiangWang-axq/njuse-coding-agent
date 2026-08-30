@@ -6,13 +6,16 @@
 
 运行方法：
 1. 安装 Python 3.10 及以上；
-2. 复制 .env.example 为 .env，填写 AGENT_API_KEY（或设置环境变量）；
-3. 交互对话（推荐）：在本目录执行 python -m coding_agent，直接输入任务开始对话；
-4. 一次性执行：python -m coding_agent "任务描述"（执行完退出，退出码 0/1/2）；
-5. 恢复历史会话：python -m coding_agent --resume（恢复最新会话），或用 python -m coding_agent --resume-session <序号|ID|唯一前缀> 恢复指定会话；
-6. 管理历史会话：python -m coding_agent --list-sessions 查看列表，python -m coding_agent --delete-session <选择器> 删除指定会话（加 --yes 跳过确认）。列表和删除不需要 API key。
+2. 在本项目根目录执行 python -m pip install -e .，完成一次本地安装；
+3. 复制 .env.example 为 .env，填写 AGENT_API_KEY（或设置环境变量）；
+4. 进入要处理的项目目录，执行 python -m coding_agent，当前目录自动作为工作区；
+5. 一次性执行：python -m coding_agent "任务描述"（执行完退出，退出码 0/1/2）；
+6. 恢复历史会话：python -m coding_agent --resume（恢复最新会话），或用 python -m coding_agent --resume-session <序号|ID|唯一前缀> 恢复指定会话；
+7. 管理历史会话：python -m coding_agent --list-sessions 查看列表，python -m coding_agent --delete-session <选择器> 删除指定会话（加 --yes 跳过确认）。列表和删除不需要 API key。
 
-交互命令：/help 查看帮助、/status 查看当前状态、/sessions 查看历史会话、/resume <选择器> 切换会话、/delete <选择器> 确认后永久删除会话、/new 开始新会话、/exit（或 /quit）退出；Ctrl+C 在输入时退出、在任务执行中取消当前轮。
+启动时可用 `--workspace PATH` 或 `-w PATH` 指定工作区；进入多轮对话后可用 `/workspace [路径]` 查看、选择或切换工作区。
+
+交互命令：/help 查看帮助、/status 查看当前状态、/sessions 查看历史会话、/workspace [路径] 选择或切换工作区、/resume <选择器> 切换会话、/delete <选择器> 确认后永久删除会话、/new 开始新会话、/exit（或 /quit）退出；Ctrl+C 在输入时退出、在任务执行中取消当前轮。
 
 特色功能：
 - 终端对话：模型回答逐字流式输出，工具调用以彩色多行卡片展示（工具名、参数、结果摘要、测试输出尾部），压缩发生时实时提示（如 `[上下文] L2 压缩 3 条旧工具结果`），每轮结束显示 token 用量/估算与预算（纯标准库 ANSI，管道输出自动去色）；

@@ -4,13 +4,21 @@
 
 `demo/tasks/fix_me` 是一个故意留下两个 bug 的小项目：`format_total` 缺少人民币符号、`apply_discount` 用减法代替百分比折扣；对应测试先失败。
 
-在 `demo/tasks/fix_me` 目录下启动交互模式：
+首次使用时，在项目根目录安装一次：
+
+```powershell
+cd D:\NUAA\研\南软\agent
+python -m pip install -e .
+```
+
+之后进入目标工作区，直接启动交互模式：
 
 ```powershell
 cd demo/tasks/fix_me
-$env:PYTHONPATH = "..\.."   # 让该子目录能导入项目根目录的 coding_agent 包
 python -m coding_agent
 ```
+
+`python -m coding_agent` 使用当前目录作为 Agent 工作区；项目根目录中的 `.env` 会通过父目录自动发现，不需要手动设置 `PYTHONPATH`。
 
 进入对话后输入任务：
 

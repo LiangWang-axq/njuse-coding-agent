@@ -154,9 +154,10 @@ def new_session_path(workspace: Path) -> Path:
 
 def new_session(workspace: Path) -> Session:
     """创建新会话：会话 id 与文件名保持一致（/status 展示更清晰）。"""
+    workspace = Path(workspace).resolve()
     session_id = _new_session_id()
     path = sessions_dir(workspace) / f"{session_id}.jsonl"
-    return Session(path, session_id=session_id)
+    return Session(path, session_id=session_id, cwd=str(workspace))
 
 
 def latest_session_path(workspace: Path) -> Path | None:

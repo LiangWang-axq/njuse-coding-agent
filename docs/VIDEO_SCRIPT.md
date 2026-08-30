@@ -10,10 +10,12 @@
 
 > 这是一个不依赖任何 Agent 框架的编程智能体，支持在终端里像聊天一样对话，自主读写文件、执行命令、完成编程任务。下面让它修复一个真实的订单计算 bug。
 
+录制前只需安装一次：在项目根目录执行 `python -m pip install -e .`。正式录制时可以直接进入目标目录，或用 `python -m coding_agent --workspace D:\项目` 选择工作区；不要展示安装过程、`.env` 或 API key。
+
 ### 0:10–1:35 真实任务演示
 
 1. 进入 `demo/tasks/fix_me`，展示目录结构；先手动运行 `python -m unittest discover -s tests -v`，展示 2 个失败测试。
-2. 运行 `python -m coding_agent` 进入交互模式（设置 `$env:PYTHONPATH = "..\.."`），输入：
+2. 在当前工作区直接运行 `python -m coding_agent` 进入交互模式，输入：
 
    ```powershell
    你 > 检查订单计算模块，修复金额格式化与折扣计算的 bug，运行测试直到全部通过
@@ -21,6 +23,7 @@
 
 3. 镜头跟随流式输出的回答与彩色多行工具卡片（工具名/参数/结果摘要）：`list_files`、`read_file`、`search_code`、`replace_in_file`、`run_tests`；长任务中可顺带展示 `[上下文]` 压缩提示与每轮 token 用量小结。
 4. 展示测试由失败变通过，Agent 输出总结与 `（本轮 N 步 · 累计 N 步）`；可再演示 `/status` 与 `/new`。
+5. 如需展示多工作区能力，在任务结束后输入 `/workspace D:\另一个项目`，再输入 `/status`，展示工具根目录、会话和工作区已切换。
 
 ### 1:35–2:00 设计讲解
 
