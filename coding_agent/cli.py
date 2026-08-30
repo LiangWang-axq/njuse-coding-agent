@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import ui
 from .agent import AgentError, CodingAgent
-from .config import load_settings
+from .config import Settings, load_settings
 from .provider import OpenAICompatibleProvider
 from .session import (
     Session,
@@ -16,6 +16,7 @@ from .session import (
     list_sessions,
     resolve_session,
 )
+from .workspace import WorkspaceError, resolve_workspace
 
 
 def _stream_answer(agent: CodingAgent, task: str) -> int:
@@ -59,6 +60,7 @@ def main() -> int:
     ui.init()
     parser = argparse.ArgumentParser(description="Framework-free command-line Coding Agent")
     parser.add_argument("task", nargs="*", help="要完成的编程任务；不填则进入交互对话模式")
+    parser.add_argument("--workspace", "-w", metavar="PATH", help="工作区目录；默认使用当前目录")
     parser.add_argument("--max-steps", type=int, default=None, help="最多模型-工具循环次数")
     resume_group = parser.add_mutually_exclusive_group()
     resume_group.add_argument("--resume", action="store_true", help="恢复工作区内最近一次会话的历史")
@@ -68,16 +70,62 @@ def main() -> int:
     parser.add_argument("--yes", action="store_true", help="删除会话时跳过确认")
     args = parser.parse_args()
     _validate_management_args(parser, args)
-    workspace = Path.cwd().resolve()
+    try:
+        workspace = resolve_workspace(args.workspace or ".", base=Path.cwd())
+    except WorkspaceError as exc:
+        parser.error(str(exc))
     if args.list_sessions:
         print(ui.format_session_list(list_sessions(workspace)))
         return 0
     if args.delete_session is not None:
         return _delete_session_from_cli(workspace, args.delete_session, args.yes)
+    try:
+        agent, settings = _create_agent(
+            workspace,
+            max_steps=args.max_steps,
+            resume=args.resume,
+            resume_session=args.resume_session,
+        )
+    except SessionError as exc:
+        print(ui.red(f"无法恢复会话: {exc}"))
+        return 1
+    except WorkspaceError as exc:
+        print(ui.red(str(exc)))
+        return 1
+    task = " ".join(args.task).strip()
+    if not task:
+        from .repl import run_repl
+
+        def switch_workspace(path_value: str, current_workspace: Path):
+            target = resolve_workspace(path_value, base=current_workspace)
+            return _create_agent(
+                target,
+                max_steps=args.max_steps,
+                resume=False,
+                resume_session=None,
+            )
+
+        return run_repl(agent, settings, workspace_switcher=switch_workspace)
+    try:
+        return _stream_answer(agent, task)
+    except AgentError as exc:
+        print(ui.red(f"Agent 失败: {exc}"))
+        return 1
+
+
+def _create_agent(
+    workspace: Path,
+    *,
+    max_steps: int | None,
+    resume: bool,
+    resume_session: str | None,
+) -> tuple[CodingAgent, Settings]:
+    """Create an Agent whose tools, settings, and session belong to workspace."""
     settings = load_settings(workspace)
     if not settings.api_key:
-        print("未找到 API key，请设置 AGENT_API_KEY 或 OPENAI_API_KEY（参考 .env.example）")
-        return 1
+        raise WorkspaceError(
+            f"工作区未找到 API key: {workspace}；请设置 AGENT_API_KEY 或配置父目录 .env"
+        )
     provider = OpenAICompatibleProvider(
         settings.base_url,
         settings.api_key,
@@ -85,28 +133,15 @@ def main() -> int:
         settings.timeout_seconds,
         settings.retries,
     )
-    try:
-        session = _load_resume_session(workspace, args.resume, args.resume_session)
-    except SessionError as exc:
-        print(ui.red(f"无法恢复会话: {exc}"))
-        return 1
+    session = _load_resume_session(workspace, resume, resume_session)
     agent = CodingAgent(
         workspace,
         provider,
-        args.max_steps or settings.max_steps,
+        max_steps or settings.max_steps,
         settings.context_chars,
         session=session,
     )
-    task = " ".join(args.task).strip()
-    if not task:
-        from .repl import run_repl
-
-        return run_repl(agent, settings)
-    try:
-        return _stream_answer(agent, task)
-    except AgentError as exc:
-        print(ui.red(f"Agent 失败: {exc}"))
-        return 1
+    return agent, settings
 
 
 def _load_resume_session(

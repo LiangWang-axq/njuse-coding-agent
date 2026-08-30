@@ -77,6 +77,67 @@ class SessionCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(seen, {"session_id": "session-one", "task": "继续任务"})
 
+    def test_workspace_argument_selects_target_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+            seen = {}
+            settings = Settings("https://example.test/v1", "sk-test", "test-model")
+
+            def stream(agent, task):
+                seen["workspace"] = agent.workspace
+                seen["task"] = task
+                return 0
+
+            with mock.patch.object(cli.Path, "cwd", return_value=root), mock.patch.object(
+                cli, "load_settings", return_value=settings
+            ), mock.patch.object(cli, "OpenAICompatibleProvider", return_value=object()), mock.patch.object(
+                cli, "_stream_answer", side_effect=stream
+            ), mock.patch(
+                "sys.argv", ["coding-agent", "--workspace", "target", "检查目标项目"]
+            ):
+                code = cli.main()
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, {"workspace": target.resolve(), "task": "检查目标项目"})
+
+    def test_workspace_argument_rejects_missing_path_before_loading_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            error = StringIO()
+            with mock.patch.object(cli.Path, "cwd", return_value=root), mock.patch(
+                "sys.argv", ["coding-agent", "--workspace", "missing"]
+            ), redirect_stderr(error):
+                with self.assertRaises(SystemExit) as raised:
+                    cli.main()
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("工作区不存在", error.getvalue())
+
+    def test_workspace_resume_reads_only_target_workspace_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+            expected = self._session(target, "target-session")
+            seen = {}
+            settings = Settings("https://example.test/v1", "sk-test", "test-model")
+
+            def stream(agent, task):
+                seen["session_id"] = agent.session.session_id
+                seen["workspace"] = agent.workspace
+                return 0
+
+            with mock.patch.object(cli.Path, "cwd", return_value=root), mock.patch.object(
+                cli, "load_settings", return_value=settings
+            ), mock.patch.object(cli, "OpenAICompatibleProvider", return_value=object()), mock.patch.object(
+                cli, "_stream_answer", side_effect=stream
+            ), mock.patch(
+                "sys.argv", ["coding-agent", "--workspace", str(target), "--resume", "继续"]
+            ):
+                code = cli.main()
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, {"session_id": expected.session_id, "workspace": target.resolve()})
+
     def test_original_resume_still_loads_latest_session(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

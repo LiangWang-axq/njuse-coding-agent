@@ -30,6 +30,25 @@ $env:AGENT_API_KEY = "你的本地密钥"
 
 当前工作区目录就是 Agent 唯一允许访问的工作区。有两种启动方式：
 
+### 选择工作区
+
+默认使用当前目录，也可以在启动时指定工作区：
+
+```powershell
+python -m coding_agent
+python -m coding_agent --workspace D:\项目
+python -m coding_agent -w D:\项目
+```
+
+进入多轮对话后，可以使用以下命令切换工作区：
+
+```text
+/workspace
+/workspace D:\另一个项目
+```
+
+`/workspace` 不带路径时会提示输入路径；直接回车保留当前工作区。切换成功后会创建新会话，工具和相对路径都绑定到新工作区；历史会话仍保存在各自工作区，可切换后使用 `/sessions` 和 `/resume` 恢复。
+
 ### 交互模式（推荐）
 
 ```powershell

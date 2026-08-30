@@ -23,7 +23,7 @@ cli.py -> repl.py（交互循环）或 CodingAgent.run() -> ContextManager(histo
 - `coding_agent/protocol.py`：`parse_model_response` 兼容两种协议：JSON 动作（`{"type":"tool_call"|"final"}`）与 OpenAI 原生 `tool_calls`；支持一次多个工具调用依序执行；连续两次解析失败即终止。
 - `coding_agent/provider.py`：极简 HTTP 客户端，仅走 Chat Completions 接口；`chat_stream` 自行解析 SSE（按行缓冲 `data:` 事件、`[DONE]` 终止、原生 `tool_calls` 按 index 增量拼接参数）；429/5xx/超时按 2s/4s 退避重试；网关拒绝 `tools` 参数（HTTP 400）时自动降级为纯 JSON 协议。
 - `coding_agent/tools.py`：10 个本地工具（list/read/search/write/replace/apply_diff/run_tests/delete/move/git_status），全部通过 `WorkspaceTools._path` 做工作区根路径校验；`run_tests` 支持 `cwd` 参数在指定的工作区子目录下执行。
-- `coding_agent/config.py`、`cli.py`：配置加载与命令行入口。
+- `coding_agent/config.py`、`cli.py`、`workspace.py`：配置加载、工作区解析与命令行入口。
 
 ## 关键设计决策
 
@@ -42,6 +42,10 @@ cli.py -> repl.py（交互循环）或 CodingAgent.run() -> ContextManager(histo
 ### 多轮会话与终端交互
 
 `CodingAgent` 持有同一个 `ContextManager`，`run()` 首次调用创建、后续调用复用，因此交互模式下多轮任务共享历史；`/new` 调用 `reset()` 清空，`/resume` 调用 `switch_session()` 重放所选历史并重置会话级运行统计。界面仅用标准库 ANSI 颜色：`ctypes` 开启 Windows VT 处理，非 TTY 或设置 `NO_COLOR` 时自动去色，保持零第三方依赖。
+
+### 工作区选择
+
+CLI 默认将当前目录作为工作区，也可通过 `--workspace PATH` / `-w PATH` 指定已有目录。REPL 的 `/workspace [路径]` 支持查看并切换工作区：切换路径后重新创建 `CodingAgent`，因此工具路径校验、模型配置、会话目录和上下文都绑定到新目录；原工作区的会话不被带入，切换后可在新工作区使用 `/sessions` 与 `/resume`。路径解析只要求目标是已有目录，工作区本身可以位于当前目录之外。
 
 ### 上下文压缩策略
 

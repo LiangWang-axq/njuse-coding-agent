@@ -10,6 +10,7 @@ from coding_agent.session import (
     delete_session,
     latest_session_path,
     list_sessions,
+    new_session,
     new_session_path,
     resolve_session,
     sessions_dir,
@@ -85,6 +86,12 @@ class SessionTests(unittest.TestCase):
     def test_sessions_dir_layout(self):
         with tempfile.TemporaryDirectory() as directory:
             self.assertEqual(sessions_dir(Path(directory)), Path(directory) / ".coding_agent" / "sessions")
+
+    def test_new_session_records_selected_workspace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            created = new_session(root)
+            self.assertEqual(created.cwd, str(root))
 
     def test_list_sessions_newest_first_with_preview(self):
         with tempfile.TemporaryDirectory() as directory:

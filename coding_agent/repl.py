@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+from typing import Callable
 
 from . import ui
 from .agent import AgentError, CodingAgent
 from .config import Settings
 from .session import Session, SessionError, delete_session, list_sessions, resolve_session
+from .workspace import WorkspaceError
 
 HELP_TEXT = (
     "可用命令：\n"
     "  /help     显示本帮助\n"
     "  /status   查看工作区、模型、会话与累计步骤\n"
     "  /sessions 查看历史会话列表\n"
+    "  /workspace [路径] 选择或切换工作区\n"
     "  /resume <序号|ID>  切换到历史会话\n"
     "  /delete <序号|ID>  永久删除历史会话\n"
     "  /new      清空历史并开始新会话（旧会话可用 --resume 恢复）\n"
@@ -23,7 +27,12 @@ HELP_TEXT = (
 )
 
 
-def run_repl(agent: CodingAgent, settings: Settings) -> int:
+def run_repl(
+    agent: CodingAgent,
+    settings: Settings,
+    *,
+    workspace_switcher: Callable[[str, Path], tuple[CodingAgent, Settings]] | None = None,
+) -> int:
     print(ui.bold("Coding Agent 交互模式"))
     print(f"模型: {settings.model} · 工作区: {agent.workspace}")
     print("直接输入任务开始对话，输入 /help 查看命令。")
@@ -53,6 +62,33 @@ def run_repl(agent: CodingAgent, settings: Settings) -> int:
             continue
         if command == "/sessions":
             print(ui.format_session_list(list_sessions(agent.workspace), agent.session.path))
+            continue
+        if command == "/workspace":
+            if workspace_switcher is None:
+                print(ui.yellow("当前入口未配置工作区切换。"))
+                continue
+            try:
+                path_value = input(f"工作区路径 [{agent.workspace}] > ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                continue
+            if not path_value:
+                print(f"当前工作区: {agent.workspace}")
+                continue
+            result = _try_switch_workspace(path_value, agent, workspace_switcher)
+            if result is not None:
+                agent, settings = result
+                total_steps = 0
+            continue
+        if command.startswith("/workspace "):
+            if workspace_switcher is None:
+                print(ui.yellow("当前入口未配置工作区切换。"))
+                continue
+            path_value = task.split(maxsplit=1)[1].strip()
+            result = _try_switch_workspace(path_value, agent, workspace_switcher)
+            if result is not None:
+                agent, settings = result
+                total_steps = 0
             continue
         if command == "/resume":
             print("用法: /resume <序号|会话 ID|唯一前缀>")
@@ -110,6 +146,25 @@ def _turn_summary(result, total_steps: int) -> str:
     else:
         token = f"估算 ~{result.estimated_tokens} token"
     return f"（本轮 {result.steps} 步 · 累计 {total_steps} 步 · {token} · 预算 {result.budget_tokens}）"
+
+
+def _try_switch_workspace(
+    path_value: str,
+    agent: CodingAgent,
+    workspace_switcher: Callable[[str, Path], tuple[CodingAgent, Settings]],
+):
+    try:
+        switched = workspace_switcher(path_value, agent.workspace)
+    except (WorkspaceError, OSError, SessionError) as exc:
+        print(ui.red(f"无法切换工作区: {exc}"))
+        return None
+    except Exception as exc:
+        print(ui.red(f"无法切换工作区: {exc}"))
+        return None
+    new_agent, new_settings = switched
+    print(ui.green(f"[已切换工作区] {new_agent.workspace}"))
+    print(f"模型: {new_settings.model} · 会话: {new_agent.session.session_id}")
+    return new_agent, new_settings
 
 
 def _run_turn(agent: CodingAgent, task: str):

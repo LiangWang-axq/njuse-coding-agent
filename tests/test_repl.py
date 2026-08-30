@@ -14,6 +14,7 @@ from coding_agent.config import Settings
 from coding_agent.protocol import ParsedResponse
 from coding_agent.repl import run_repl
 from coding_agent.session import Session, sessions_dir
+from coding_agent.workspace import WorkspaceError
 
 
 class StubAgent:
@@ -163,6 +164,78 @@ class ReplTests(unittest.TestCase):
                 code = run_repl(agent, make_settings())
         self.assertEqual(code, 0)
         self.assertIn("test-session", output.getvalue())
+
+    def test_workspace_command_switches_agent_and_resets_steps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+            current_agent = StubAgent(root)
+            target_agent = StubAgent(target)
+            target_settings = Settings(
+                base_url="https://target.example/v1", api_key="sk-target", model="target-model"
+            )
+            seen = {}
+
+            def switcher(path_value, current_workspace):
+                seen["path"] = path_value
+                seen["current"] = current_workspace
+                return target_agent, target_settings
+
+            output = StringIO()
+            with mock.patch(
+                "builtins.input", side_effect=[f"/workspace {target}", "/status", "/exit"]
+            ), redirect_stdout(output):
+                code = run_repl(
+                    current_agent,
+                    make_settings(),
+                    workspace_switcher=switcher,
+                )
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, {"path": str(target), "current": root})
+        self.assertIn(f"[已切换工作区] {target}", output.getvalue())
+        self.assertIn(f"工作区: {target}", output.getvalue())
+        self.assertIn("模型: target-model", output.getvalue())
+
+    def test_workspace_prompt_accepts_path_and_empty_keeps_current(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            target.mkdir()
+            current_agent = StubAgent(root)
+            target_agent = StubAgent(target)
+            calls = []
+
+            def switcher(path_value, current_workspace):
+                calls.append((path_value, current_workspace))
+                return target_agent, make_settings()
+
+            output = StringIO()
+            with mock.patch(
+                "builtins.input", side_effect=["/workspace", str(target), "/workspace", "", "/exit"]
+            ), redirect_stdout(output):
+                code = run_repl(current_agent, make_settings(), workspace_switcher=switcher)
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [(str(target), root)])
+        self.assertIn(f"当前工作区: {target}", output.getvalue())
+
+    def test_workspace_switch_failure_keeps_current_agent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            agent = StubAgent(root)
+            output = StringIO()
+
+            def switcher(path_value, current_workspace):
+                raise WorkspaceError("工作区不存在")
+
+            with mock.patch(
+                "builtins.input", side_effect=["/workspace missing", "/status", "/exit"]
+            ), redirect_stdout(output):
+                code = run_repl(agent, make_settings(), workspace_switcher=switcher)
+        self.assertEqual(code, 0)
+        self.assertIn("无法切换工作区", output.getvalue())
+        self.assertIn(f"工作区: {root}", output.getvalue())
+        self.assertEqual(agent.workspace, root)
 
     def test_sessions_lists_and_marks_current_session(self):
         with tempfile.TemporaryDirectory() as directory:
