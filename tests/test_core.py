@@ -273,6 +273,24 @@ class WorkspaceTests(unittest.TestCase):
             self.assertIn(("user", "任务一"), roles_and_content)  # 历史已恢复
             self.assertIn(("user", "任务二"), roles_and_content)
 
+    def test_switch_session_resets_session_runtime_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            agent = CodingAgent(root, ScriptedProvider([]), max_steps=4)
+            agent.compression_stats = {"L2": 3}
+            agent.last_usage = {"total_tokens": 100}
+            agent._last_context_stats = {"L2": 3}
+            agent._context = object()
+            target = Session(root / ".coding_agent" / "sessions" / "target.jsonl")
+
+            agent.switch_session(target)
+
+            self.assertIs(agent.session, target)
+            self.assertIsNone(agent._context)
+            self.assertEqual(agent.compression_stats, {})
+            self.assertIsNone(agent.last_usage)
+            self.assertIsNone(agent._last_context_stats)
+
     def test_reset_starts_new_session_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

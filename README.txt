@@ -9,13 +9,14 @@
 2. 复制 .env.example 为 .env，填写 AGENT_API_KEY（或设置环境变量）；
 3. 交互对话（推荐）：在本目录执行 python -m coding_agent，直接输入任务开始对话；
 4. 一次性执行：python -m coding_agent "任务描述"（执行完退出，退出码 0/1/2）；
-5. 恢复历史会话：python -m coding_agent --resume（自动加载工作区内最近一次会话，交互/一次性模式均可用）。
+5. 恢复历史会话：python -m coding_agent --resume（恢复最新会话），或用 python -m coding_agent --resume-session <序号|ID|唯一前缀> 恢复指定会话；
+6. 管理历史会话：python -m coding_agent --list-sessions 查看列表，python -m coding_agent --delete-session <选择器> 删除指定会话（加 --yes 跳过确认）。列表和删除不需要 API key。
 
-交互命令：/help 查看帮助、/status 查看工作区/模型/会话/压缩统计/token 用量与累计步骤、/new 清空历史开始新会话、/exit（或 /quit）退出；Ctrl+C 在输入时退出、在任务执行中取消当前轮。
+交互命令：/help 查看帮助、/status 查看当前状态、/sessions 查看历史会话、/resume <选择器> 切换会话、/delete <选择器> 确认后永久删除会话、/new 开始新会话、/exit（或 /quit）退出；Ctrl+C 在输入时退出、在任务执行中取消当前轮。
 
 特色功能：
 - 终端对话：模型回答逐字流式输出，工具调用以彩色多行卡片展示（工具名、参数、结果摘要、测试输出尾部），压缩发生时实时提示（如 `[上下文] L2 压缩 3 条旧工具结果`），每轮结束显示 token 用量/估算与预算（纯标准库 ANSI，管道输出自动去色）；
-- 多轮会话：同一进程内持续对话；每条消息原子落盘到 <工作区>/.coding_agent/sessions/，重启后可用 --resume 恢复；
+- 多轮会话：同一进程内持续对话；每条消息原子落盘到 <工作区>/.coding_agent/sessions/，支持按最新会话或指定会话恢复，并可在 CLI/交互模式中列表、切换和安全删除；
 - 全本地工具执行：10 个工具全部自行实现，路径锁定在工作区内，拒绝越界、绝对路径与 .env；
 - 四层上下文压缩：超大工具结果落盘（视图换预览）、超限裁切中间轮次、旧结果压成一行摘要、仍超限才调用模型生成结构化摘要；并用真实 usage 校准 token 估算，控制模型输入窗口；
 - 输出解析：兼容 JSON 动作与原生 tool calling（含流式增量合并），支持一次多个工具调用；

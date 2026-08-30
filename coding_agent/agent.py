@@ -81,8 +81,19 @@ class CodingAgent:
 
     def reset(self) -> None:
         """清空对话历史并开启新会话（旧会话文件保留，可用 --resume 恢复）。"""
-        self._context = None
         self.session = new_session(self.workspace)
+        self._reset_session_runtime()
+
+    def switch_session(self, session: Session) -> None:
+        """切换到已加载会话，并重置仅属于原会话的运行时统计。"""
+        self.session = session
+        self._reset_session_runtime()
+
+    def _reset_session_runtime(self) -> None:
+        self._context = None
+        self.compression_stats = {}
+        self.last_usage = None
+        self._last_context_stats = None
 
     def run(
         self,

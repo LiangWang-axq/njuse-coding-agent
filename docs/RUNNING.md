@@ -42,6 +42,14 @@ python -m coding_agent
 python -m coding_agent --resume
 ```
 
+也可以先列出会话，再按最新优先序号、完整 ID 或唯一 ID 前缀恢复指定会话：
+
+```powershell
+python -m coding_agent --list-sessions
+python -m coding_agent --resume-session 2
+python -m coding_agent --resume-session 20260829-161011
+```
+
 进入对话界面后直接输入任务即可：
 
 ```text
@@ -66,7 +74,21 @@ Agent > 我先查看一下相关文件……
 你 >
 ```
 
-可用命令：`/help`、`/status`（工作区/模型/会话/压缩统计/token 用量/累计步骤）、`/new`（清空历史并开始新会话，旧会话仍可用 `--resume` 恢复）、`/exit`（或 `/quit`）。`Ctrl+C` 在输入时退出程序，在任务执行中取消当前轮并保留历史；`Ctrl+D/Z`（EOF）正常退出。多轮任务在同一进程内共享历史，且每条消息原子落盘到 `<工作区>/.coding_agent/sessions/`。
+可用命令：`/help`、`/status`（工作区/模型/会话/压缩统计/token 用量/累计步骤）、`/sessions`（最新优先列出历史）、`/resume <选择器>`（切换会话）、`/delete <选择器>`（确认后永久删除）、`/new`（开始新会话）、`/exit`（或 `/quit`）。选择器可以是列表序号、完整 ID 或唯一 ID 前缀。删除当前会话后会自动开始新会话；删除其他会话不影响当前上下文。
+
+`Ctrl+C` 在输入时退出程序，在任务执行中取消当前轮并保留历史；`Ctrl+D/Z`（EOF）正常退出。多轮任务在同一进程内共享历史，且每条消息原子落盘到 `<工作区>/.coding_agent/sessions/`。
+
+### 会话管理
+
+列表和删除是纯本地操作，即使尚未配置 API key 也可以使用：
+
+```powershell
+python -m coding_agent --list-sessions
+python -m coding_agent --delete-session 3
+python -m coding_agent --delete-session 20260829-155609 --yes
+```
+
+删除默认展示会话摘要并询问 `[y/N]`；只有 `y` 或 `yes` 才会永久删除，`--yes` 用于明确跳过确认。损坏的 JSONL 会在列表中标记为“损坏”，不能恢复但仍可删除。删除只影响选中的 `.coding_agent/sessions/*.jsonl`，不会清理 `.coding_agent/results/` 中的上下文大结果文件。
 
 ### 一次性模式
 
@@ -75,7 +97,7 @@ python -m coding_agent "检查 demo/tasks/fix_me，修复订单计算 bug，补�
 python -m coding_agent --resume "继续上次任务"
 ```
 
-执行完自动退出，退出码 0 表示成功、1 表示 Agent 错误、2 表示达到最大步骤未完成。模型回答同样流式输出，工具调用以 `[步骤 N]` 彩色行展示。
+执行完自动退出，退出码 0 表示成功、1 表示 Agent 错误或会话管理失败/取消、2 表示达到最大步骤未完成。模型回答同样流式输出，工具调用以 `[步骤 N]` 彩色行展示。
 
 模型每轮返回一个 JSON 动作或原生 tool call。工具调用以多行卡片展示（工具名、参数、结果摘要、测试输出尾部）；压缩发生时打印 `[上下文] …` 提示，每轮结束显示 token 用量/估算与预算。工具动作格式为：
 

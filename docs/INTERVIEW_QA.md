@@ -45,10 +45,10 @@
     `demo/tasks/fix_me` 中 `format_total` 缺少人民币符号、`apply_discount` 用减法代替百分比折扣。Agent 先跑测试看到 2 个失败，再读代码、精准替换、重跑测试直到通过并输出 `final`。
 
 15. **已知限制与改进方向？**
-   已支持会话持久化（`--resume` 恢复最近一次会话，逐条原子落盘）、usage 校准上下文估算；仍可改进：界面展示累计 token/成本、只读工具并行执行、会话列表与删除管理。
+   已支持工作区内的会话持久化、列表、指定恢复和确认删除，以及 usage 校准上下文估算；仍可改进：跨工作区会话索引、大结果文件按会话隔离、累计 token/成本展示和只读工具并行执行。
 
 20. **会话如何持久化与恢复？**
-    `CodingAgent` 构造时在 `<工作区>/.coding_agent/sessions/` 下创建 JSONL 会话文件，每条消息（用户任务、助手输出、工具结果、纠错反馈）追加后立即 `Session.add` 原子落盘：临时文件 + `fsync` + `os.replace`，崩溃不损坏上次快照。`--resume` 时 `latest_session_path` 找到最近一次会话文件，`Session.load` 校验 header、丢弃撕裂尾行，把历史消息重放进 `ContextManager`，模型看到的上文与退出前一致。`/new` 或 `reset()` 开启新会话，旧文件保留。
+    `CodingAgent` 构造时在 `<工作区>/.coding_agent/sessions/` 下创建 JSONL 会话文件，每条消息（用户任务、助手输出、工具结果、纠错反馈）追加后立即 `Session.add` 原子落盘：临时文件 + `fsync` + `os.replace`，崩溃不损坏上次快照。`--resume` 恢复最新会话，`--resume-session` 或 `/resume` 按序号、完整 ID、唯一前缀恢复指定会话，加载时校验 header、丢弃撕裂尾行并把历史重放进 `ContextManager`。`--list-sessions` 或 `/sessions` 展示列表，删除命令确认后只移除选中的 JSONL；删除当前会话会自动开启新会话。
 
 16. **为什么这一步调用了某个工具？**（追问型）
     对任意具体调用，都可以从终端输出的 `[步骤 N] 工具名 -> OK` 回放：它对应主循环的哪一轮、参数是什么、结果如何回填、模型下一步据此做了什么。答辩前建议把演示视频的每一步与 `docs/DESIGN.md` 对应一遍。
