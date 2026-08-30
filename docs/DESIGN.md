@@ -17,9 +17,9 @@ cli.py -> repl.py（交互循环）或 CodingAgent.run() -> ContextManager(histo
 模块职责：
 
 - `coding_agent/agent.py`：主循环 `CodingAgent.run`，负责调用模型、解析输出、执行工具、回填结果、计数终止条件；`on_step` 回调把每一步工具调用暴露给 CLI 展示。
-- `coding_agent/repl.py`、`coding_agent/ui.py`：交互式对话循环（斜杠命令、Ctrl+C/EOF 处理、多轮历史复用）与纯标准库 ANSI 渲染（TTY 检测、Windows VT 开启、工具调用行格式化）。
+- `coding_agent/repl.py`、`coding_agent/ui.py`：交互式对话循环（斜杠命令、会话管理、Ctrl+C/EOF 处理、多轮历史复用）与纯标准库 ANSI 渲染（TTY 检测、Windows VT 开启、工具调用和会话列表格式化）。
 - `coding_agent/context.py`：`ContextManager` 维护完整消息历史；`prepare()` 输出非破坏压缩视图（四层廉价优先：L3 大结果落盘、L1 中间裁切、L2 旧结果摘要、L4 LLM 结构化摘要），并用真实 usage 校准 token 估算，保证模型输入窗口可控。
-- `coding_agent/session.py`：`Session` 把每条消息原子落盘为 JSONL（header + 消息行），`--resume` 时加载最近一次会话，实现跨重启续跑。
+- `coding_agent/session.py`：`Session` 把每条消息原子落盘为 JSONL（header + 消息行）；`SessionInfo` 与扫描、选择、删除接口支持按序号、完整 ID 或唯一前缀管理会话，损坏文件仍可见且可删除。
 - `coding_agent/protocol.py`：`parse_model_response` 兼容两种协议：JSON 动作（`{"type":"tool_call"|"final"}`）与 OpenAI 原生 `tool_calls`；支持一次多个工具调用依序执行；连续两次解析失败即终止。
 - `coding_agent/provider.py`：极简 HTTP 客户端，仅走 Chat Completions 接口；`chat_stream` 自行解析 SSE（按行缓冲 `data:` 事件、`[DONE]` 终止、原生 `tool_calls` 按 index 增量拼接参数）；429/5xx/超时按 2s/4s 退避重试；网关拒绝 `tools` 参数（HTTP 400）时自动降级为纯 JSON 协议。
 - `coding_agent/tools.py`：10 个本地工具（list/read/search/write/replace/apply_diff/run_tests/delete/move/git_status），全部通过 `WorkspaceTools._path` 做工作区根路径校验；`run_tests` 支持 `cwd` 参数在指定的工作区子目录下执行。
@@ -41,7 +41,7 @@ cli.py -> repl.py（交互循环）或 CodingAgent.run() -> ContextManager(histo
 
 ### 多轮会话与终端交互
 
-`CodingAgent` 持有同一个 `ContextManager`，`run()` 首次调用创建、后续调用复用，因此交互模式下多轮任务共享历史；`/new` 调用 `reset()` 清空。界面仅用标准库 ANSI 颜色：`ctypes` 开启 Windows VT 处理，非 TTY 或设置 `NO_COLOR` 时自动去色，保持零第三方依赖。
+`CodingAgent` 持有同一个 `ContextManager`，`run()` 首次调用创建、后续调用复用，因此交互模式下多轮任务共享历史；`/new` 调用 `reset()` 清空，`/resume` 调用 `switch_session()` 重放所选历史并重置会话级运行统计。界面仅用标准库 ANSI 颜色：`ctypes` 开启 Windows VT 处理，非 TTY 或设置 `NO_COLOR` 时自动去色，保持零第三方依赖。
 
 ### 上下文压缩策略
 
@@ -69,7 +69,9 @@ cli.py -> repl.py（交互循环）或 CodingAgent.run() -> ContextManager(histo
 
 `CodingAgent` 构造时在 `<工作区>/.coding_agent/sessions/` 下创建 JSONL 会话文件（文件名带时间戳，天然有序）。每追加一条消息（任务、助手输出、工具结果、纠错反馈）都同步 `Session.add` 原子落盘：临时文件写入 + `fsync` 强制刷盘 + `os.replace` 原子替换，断电或杀进程不会损坏上次快照；加载时若检测到崩溃残留的撕裂尾行，直接丢弃该行。
 
-`--resume` 启动时加载工作区内最近一次会话，把历史消息重放进 `ContextManager`，模型感知上下文与退出前一致；`/new` 或 `reset()` 开启新会话，旧会话文件保留。
+`--resume` 启动时加载工作区内最近一次会话，`--resume-session` 恢复指定会话，二者都会把历史消息重放进 `ContextManager`。`--list-sessions` 与 `/sessions` 按创建时间最新优先展示序号、状态、ID、创建时间、消息数和首条用户消息摘要；损坏文件明确标记且禁止恢复。
+
+CLI 的 `--delete-session` 与交互命令 `/delete` 在确认后永久删除选中的 JSONL；删除当前会话后立即 `reset()`，删除其他会话不触碰当前上下文。选择和删除始终基于工作区会话目录的扫描结果，不直接把用户输入解释为文件路径。`.coding_agent/results/` 目前没有会话归属索引，因此删除会话不连带清理大结果文件。
 
 ### 安全边界
 
@@ -93,6 +95,6 @@ cli.py -> repl.py（交互循环）或 CodingAgent.run() -> ContextManager(histo
 
 ## 已知限制与改进方向
 
-- 会话已支持跨重启续跑（`--resume`），且每条消息原子落盘；尚未提供会话列表/删除等管理命令。
+- 会话管理限定在当前工作区，尚未提供跨工作区的全局会话索引；大结果文件也尚未按会话隔离存储。
 - 已用 usage 校准上下文估算；尚未在界面上展示累计 token/成本统计。
 - 工具串行执行；可对只读工具做并行化。

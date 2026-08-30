@@ -155,5 +155,35 @@ def format_compression_stats(stats: dict[str, int]) -> str:
     return " · ".join(parts) if parts else "无"
 
 
+def format_session_list(entries: list[Any], current_path: Any = None) -> str:
+    """把最新优先的会话记录渲染为紧凑、可扫描的单行列表。"""
+    if not entries:
+        return "工作区内没有历史会话。"
+    current = None
+    if current_path is not None:
+        try:
+            current = os.path.normcase(os.path.abspath(str(current_path)))
+        except (OSError, TypeError, ValueError):
+            current = None
+    lines = [bold("会话列表（最新优先）")]
+    for index, entry in enumerate(entries, start=1):
+        try:
+            path = os.path.normcase(os.path.abspath(str(entry.path)))
+        except (OSError, TypeError, ValueError):
+            path = None
+        if current is not None and path == current:
+            state = green("[当前]") + " "
+        elif not entry.valid:
+            state = yellow("[损坏]") + " "
+        else:
+            state = ""
+        created = (entry.created_at or "未知时间").replace("T", " ")[:19]
+        count = f"{entry.message_count} 条消息" if entry.message_count is not None else "消息数未知"
+        lines.append(
+            f"{index:>2}. {state}{entry.session_id} · {created} · {count} · {entry.preview}"
+        )
+    return "\n".join(lines)
+
+
 def print_tool_call(response: Any, result: dict[str, Any], step: int | None = None) -> None:
     print(format_tool_call(response, result, step))

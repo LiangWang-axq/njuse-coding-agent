@@ -13,12 +13,14 @@ from coding_agent import ui
 from coding_agent.config import Settings
 from coding_agent.protocol import ParsedResponse
 from coding_agent.repl import run_repl
+from coding_agent.session import Session, sessions_dir
 
 
 class StubAgent:
     def __init__(self, workspace: Path):
         self.workspace = workspace
         self.reset_calls = 0
+        self.switch_calls = []
         self.session = SimpleNamespace(
             session_id="test-session",
             path=Path(workspace) / ".coding_agent" / "sessions" / "test.jsonl",
@@ -26,6 +28,10 @@ class StubAgent:
 
     def reset(self):
         self.reset_calls += 1
+
+    def switch_session(self, session):
+        self.switch_calls.append(session)
+        self.session = session
 
 
 def make_settings() -> Settings:
@@ -103,6 +109,19 @@ class ToolCallFormatTests(unittest.TestCase):
         )
         self.assertIn("失败", failed)
 
+    def test_session_list_marks_damaged_entry(self):
+        entry = SimpleNamespace(
+            path=Path("broken.jsonl"),
+            session_id="broken",
+            created_at=None,
+            message_count=None,
+            preview="无法读取会话内容",
+            valid=False,
+        )
+        rendered = ui.format_session_list([entry])
+        self.assertIn("[损坏]", rendered)
+        self.assertIn("broken", rendered)
+
 
 class ReplTests(unittest.TestCase):
     def test_exit_command(self):
@@ -144,6 +163,88 @@ class ReplTests(unittest.TestCase):
                 code = run_repl(agent, make_settings())
         self.assertEqual(code, 0)
         self.assertIn("test-session", output.getvalue())
+
+    def test_sessions_lists_and_marks_current_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = Session(sessions_dir(root) / "current.jsonl", session_id="current")
+            current.add("user", "当前任务")
+            agent = StubAgent(root)
+            agent.session = current
+            output = StringIO()
+            with mock.patch("builtins.input", side_effect=["/sessions", "/exit"]), redirect_stdout(output):
+                code = run_repl(agent, make_settings())
+        self.assertEqual(code, 0)
+        self.assertIn("[当前]", output.getvalue())
+        self.assertIn("当前任务", output.getvalue())
+
+    def test_resume_switches_to_selected_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = Session(sessions_dir(root) / "target.jsonl", session_id="target-session")
+            target.add("user", "历史任务")
+            agent = StubAgent(root)
+            output = StringIO()
+            with mock.patch("builtins.input", side_effect=["/resume target", "/exit"]), redirect_stdout(output):
+                code = run_repl(agent, make_settings())
+        self.assertEqual(code, 0)
+        self.assertEqual(len(agent.switch_calls), 1)
+        self.assertEqual(agent.session.session_id, "target-session")
+        self.assertIn("已切换会话", output.getvalue())
+
+    def test_resume_rejects_damaged_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = sessions_dir(root) / "broken.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text("bad\n", encoding="utf-8")
+            agent = StubAgent(root)
+            output = StringIO()
+            with mock.patch("builtins.input", side_effect=["/resume broken", "/exit"]), redirect_stdout(output):
+                code = run_repl(agent, make_settings())
+        self.assertEqual(code, 0)
+        self.assertEqual(agent.switch_calls, [])
+        self.assertIn("已损坏", output.getvalue())
+
+    def test_delete_cancel_keeps_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = Session(sessions_dir(root) / "target.jsonl", session_id="target")
+            target.save()
+            agent = StubAgent(root)
+            output = StringIO()
+            with mock.patch("builtins.input", side_effect=["/delete target", "n", "/exit"]), redirect_stdout(output):
+                code = run_repl(agent, make_settings())
+            self.assertTrue(target.path.exists())
+        self.assertEqual(code, 0)
+        self.assertIn("已取消", output.getvalue())
+
+    def test_delete_other_session_does_not_reset_current(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = Session(sessions_dir(root) / "target.jsonl", session_id="target")
+            target.save()
+            agent = StubAgent(root)
+            with mock.patch("builtins.input", side_effect=["/delete target", "y", "/exit"]):
+                code = run_repl(agent, make_settings())
+            self.assertFalse(target.path.exists())
+        self.assertEqual(code, 0)
+        self.assertEqual(agent.reset_calls, 0)
+
+    def test_delete_current_session_starts_new_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = Session(sessions_dir(root) / "current.jsonl", session_id="current")
+            current.save()
+            agent = StubAgent(root)
+            agent.session = current
+            output = StringIO()
+            with mock.patch("builtins.input", side_effect=["/delete current", "yes", "/exit"]), redirect_stdout(output):
+                code = run_repl(agent, make_settings())
+            self.assertFalse(current.path.exists())
+        self.assertEqual(code, 0)
+        self.assertEqual(agent.reset_calls, 1)
+        self.assertIn("已开始新会话", output.getvalue())
 
 
 if __name__ == "__main__":

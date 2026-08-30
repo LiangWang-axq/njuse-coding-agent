@@ -7,11 +7,15 @@ import sys
 from . import ui
 from .agent import AgentError, CodingAgent
 from .config import Settings
+from .session import Session, SessionError, delete_session, list_sessions, resolve_session
 
 HELP_TEXT = (
     "可用命令：\n"
     "  /help     显示本帮助\n"
     "  /status   查看工作区、模型、会话与累计步骤\n"
+    "  /sessions 查看历史会话列表\n"
+    "  /resume <序号|ID>  切换到历史会话\n"
+    "  /delete <序号|ID>  永久删除历史会话\n"
     "  /new      清空历史并开始新会话（旧会话可用 --resume 恢复）\n"
     "  /exit     退出（等价 /quit）\n"
     "\n"
@@ -46,6 +50,25 @@ def run_repl(agent: CodingAgent, settings: Settings) -> int:
             agent.reset()
             total_steps = 0
             print(ui.yellow("[已清空] 新对话开始。"))
+            continue
+        if command == "/sessions":
+            print(ui.format_session_list(list_sessions(agent.workspace), agent.session.path))
+            continue
+        if command == "/resume":
+            print("用法: /resume <序号|会话 ID|唯一前缀>")
+            continue
+        if command.startswith("/resume "):
+            selector = task.split(maxsplit=1)[1].strip()
+            if _switch_session(agent, selector):
+                total_steps = 0
+            continue
+        if command == "/delete":
+            print("用法: /delete <序号|会话 ID|唯一前缀>")
+            continue
+        if command.startswith("/delete "):
+            selector = task.split(maxsplit=1)[1].strip()
+            if _delete_session_from_repl(agent, selector):
+                total_steps = 0
             continue
         if command == "/status":
             print(f"工作区: {agent.workspace}")
@@ -124,3 +147,46 @@ def _run_turn(agent: CodingAgent, task: str):
     if not result.success:
         print(ui.red(f"[未完成] {result.message}"))
     return result
+
+
+def _switch_session(agent: CodingAgent, selector: str) -> bool:
+    try:
+        selected = resolve_session(agent.workspace, selector)
+        if selected.path.resolve() == agent.session.path.resolve():
+            print(ui.dim(f"[当前会话] {selected.session_id}"))
+            return False
+        session = Session.load(selected.path)
+    except (OSError, SessionError) as exc:
+        print(ui.red(f"无法恢复会话: {exc}"))
+        return False
+    agent.switch_session(session)
+    print(ui.green(f"[已切换会话] {session.session_id}（{session.message_count} 条历史消息）"))
+    return True
+
+
+def _delete_session_from_repl(agent: CodingAgent, selector: str) -> bool:
+    try:
+        selected = resolve_session(agent.workspace, selector, require_valid=False)
+    except SessionError as exc:
+        print(ui.red(f"无法删除会话: {exc}"))
+        return False
+    try:
+        confirmed = input(f"确认永久删除会话 {selected.session_id}？[y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        confirmed = ""
+    if confirmed not in {"y", "yes"}:
+        print(ui.yellow("[已取消] 会话未删除。"))
+        return False
+    is_current = selected.path.resolve() == agent.session.path.resolve()
+    try:
+        deleted = delete_session(agent.workspace, selector)
+    except SessionError as exc:
+        print(ui.red(f"无法删除会话: {exc}"))
+        return False
+    if is_current:
+        agent.reset()
+        print(ui.green(f"[已删除会话] {deleted.session_id}；已开始新会话。"))
+        return True
+    print(ui.green(f"[已删除会话] {deleted.session_id}"))
+    return False

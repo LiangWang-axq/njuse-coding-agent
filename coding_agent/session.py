@@ -3,13 +3,31 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
 
+SESSION_PREVIEW_CHARS = 48
+
+
 class SessionError(RuntimeError):
     """会话文件无法读取或格式非法。"""
+
+
+@dataclass(frozen=True)
+class SessionInfo:
+    """会话列表中的一条记录；损坏文件也会保留以便删除。"""
+
+    path: Path
+    session_id: str
+    created_at: str | None
+    cwd: str | None
+    message_count: int | None
+    preview: str
+    valid: bool
+    error: str | None = None
 
 
 class Session:
@@ -148,3 +166,123 @@ def latest_session_path(workspace: Path) -> Path | None:
         return None
     files = sorted(directory.glob("*.jsonl"))
     return files[-1] if files else None
+
+
+def list_sessions(workspace: Path) -> list[SessionInfo]:
+    """扫描工作区会话，按创建时间最新优先返回，损坏文件不会被隐藏。"""
+    directory = sessions_dir(workspace)
+    if not directory.is_dir():
+        return []
+    entries = [_session_info(path) for path in directory.glob("*.jsonl") if path.is_file()]
+    return sorted(entries, key=_session_sort_key, reverse=True)
+
+
+def resolve_session(
+    workspace: Path,
+    selector: str,
+    *,
+    require_valid: bool = True,
+) -> SessionInfo:
+    """按最新优先序号、完整 ID 或唯一 ID 前缀选择会话。"""
+    selector = selector.strip()
+    if not selector:
+        raise SessionError("会话选择器不能为空")
+    entries = list_sessions(workspace)
+    if selector.isdigit():
+        index = int(selector)
+        if index < 1 or index > len(entries):
+            raise SessionError(f"会话序号超出范围: {selector}")
+        selected = entries[index - 1]
+    else:
+        exact = [
+            entry
+            for entry in entries
+            if selector in {entry.session_id, entry.path.stem}
+        ]
+        if len(exact) == 1:
+            selected = exact[0]
+        elif len(exact) > 1:
+            raise SessionError(f"会话 ID 不唯一: {selector}")
+        else:
+            matches = [
+                entry
+                for entry in entries
+                if entry.session_id.startswith(selector) or entry.path.stem.startswith(selector)
+            ]
+            if not matches:
+                raise SessionError(f"未找到会话: {selector}")
+            if len(matches) > 1:
+                ids = "、".join(entry.session_id for entry in matches[:3])
+                raise SessionError(f"会话前缀不唯一: {selector}（匹配 {ids}）")
+            selected = matches[0]
+    if require_valid and not selected.valid:
+        raise SessionError(f"会话已损坏，无法恢复: {selected.session_id}（{selected.error}）")
+    return selected
+
+
+def delete_session(workspace: Path, selector: str) -> SessionInfo:
+    """永久删除选中的会话 JSONL 文件并返回被删除的记录。"""
+    selected = resolve_session(workspace, selector, require_valid=False)
+    directory = sessions_dir(workspace).resolve()
+    if selected.path.parent.resolve() != directory or selected.path.suffix.lower() != ".jsonl":
+        raise SessionError("拒绝删除会话目录之外的文件")
+    try:
+        selected.path.unlink()
+    except FileNotFoundError as exc:
+        raise SessionError(f"会话文件已不存在: {selected.session_id}") from exc
+    except OSError as exc:
+        raise SessionError(f"删除会话失败: {selected.session_id}（{exc}）") from exc
+    return selected
+
+
+def _session_info(path: Path) -> SessionInfo:
+    try:
+        session = Session.load(path)
+    except (OSError, SessionError) as exc:
+        return SessionInfo(
+            path=path,
+            session_id=path.stem,
+            created_at=None,
+            cwd=None,
+            message_count=None,
+            preview="无法读取会话内容",
+            valid=False,
+            error=str(exc),
+        )
+    preview = next(
+        (_message_preview(message["content"]) for message in session.messages if message["role"] == "user"),
+        "(无用户消息)",
+    )
+    return SessionInfo(
+        path=path,
+        session_id=session.session_id,
+        created_at=session.created_at,
+        cwd=session.cwd,
+        message_count=session.message_count,
+        preview=preview,
+        valid=True,
+    )
+
+
+def _message_preview(content: str) -> str:
+    text = " ".join(content.split())
+    if not text:
+        return "(空消息)"
+    if len(text) <= SESSION_PREVIEW_CHARS:
+        return text
+    return text[:SESSION_PREVIEW_CHARS] + "…"
+
+
+def _session_sort_key(info: SessionInfo) -> tuple[float, str]:
+    if info.created_at:
+        try:
+            created = datetime.fromisoformat(info.created_at)
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            return created.timestamp(), info.path.name
+        except ValueError:
+            pass
+    try:
+        return info.path.stat().st_mtime, info.path.name
+    except OSError:
+        return 0.0, info.path.name
