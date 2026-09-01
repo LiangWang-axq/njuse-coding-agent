@@ -23,8 +23,25 @@ CONVERGENCE_RULES = (
     "2. 不要对同一个文件反复执行 list_files/read_file；除非工具结果报错或任务要求发生变化。\n"
     "3. 验证语法或导入用 python -m compileall <目录>，或通过 pytest/unittest 测试验证；"
     "禁止使用 python -c 等脚本展开命令（run_tests 会拒绝，且会浪费步骤）。\n"
-    "4. 工具返回成功且测试通过后，把任务状态推进到 final，而不是停留在重复检查。"
+    "4. 工具返回成功且测试通过后，把任务状态推进到 final，而不是停留在重复检查。\n"
+    "5. 如果工具结果没有带来新信息，不要重复调用相同的只读工具；应根据已有结果采取下一步。"
 )
+
+REPEATED_ACTION_LIMIT = 2
+NON_PROGRESS_TOOLS = frozenset({
+    "list_files",
+    "read_file",
+    "search_code",
+    "run_tests",
+    "git_status",
+})
+MUTATING_TOOLS = frozenset({
+    "write_file",
+    "replace_in_file",
+    "apply_diff",
+    "delete_file",
+    "move_file",
+})
 
 
 class ChatProvider(Protocol):
@@ -111,6 +128,8 @@ class CodingAgent:
         parse_failures = 0
         final_turn_streamed = False
         turn_usage: dict[str, int] = {}
+        repeated_actions: dict[tuple[tuple[str, str], ...], int] = {}
+        loop_warning_sent = False
         for step in range(1, self.max_steps + 1):
             try:
                 view = context.prepare()
@@ -147,12 +166,43 @@ class CodingAgent:
                     estimated_tokens=context.last_estimated_tokens,
                 )
             calls = response.calls or (response,)
+            action_signature = self._action_signature(calls)
+            if action_signature is not None:
+                seen = repeated_actions.get(action_signature, 0)
+                if seen >= REPEATED_ACTION_LIMIT:
+                    tool_names = ", ".join(call.tool or "?" for call in calls)
+                    if not loop_warning_sent:
+                        loop_warning_sent = True
+                        repeated_actions.clear()
+                        self._append(
+                            "user",
+                            f"检测到你反复调用无进展工具（{tool_names}），本次调用未执行。"
+                            "请根据已有工具结果直接采取下一步：修复代码、运行测试或返回 final，"
+                            "不要再次读取相同文件。",
+                        )
+                        continue
+                    return AgentResult(
+                        False,
+                        f"检测到模型重复执行无进展工具调用（{tool_names}），已停止本轮。",
+                        step,
+                        context.messages,
+                        usage=turn_usage or None,
+                        budget_tokens=self.context_chars // 4,
+                        estimated_tokens=context.last_estimated_tokens,
+                    )
+                repeated_actions[action_signature] = seen + 1
             results: list[dict[str, Any]] = []
             for call in calls:
                 result = self._execute(call)
                 if on_step is not None:
                     on_step(step, call, result)
                 results.append(result)
+            if any(
+                result.get("ok") and result.get("tool") in MUTATING_TOOLS
+                for result in results
+            ):
+                repeated_actions.clear()
+                loop_warning_sent = False
             self._append(
                 "user",
                 "工具结果 "
@@ -167,6 +217,24 @@ class CodingAgent:
             usage=turn_usage or None,
             budget_tokens=self.context_chars // 4,
             estimated_tokens=context.last_estimated_tokens,
+        )
+
+    @staticmethod
+    def _action_signature(
+        calls: tuple[ParsedResponse, ...] | list[ParsedResponse],
+    ) -> tuple[tuple[str, str], ...] | None:
+        """Return a stable signature for read-only actions that cannot make progress."""
+        if not calls or any(
+            call.tool is None or call.tool not in NON_PROGRESS_TOOLS or call.arguments is None
+            for call in calls
+        ):
+            return None
+        return tuple(
+            (
+                call.tool,
+                json.dumps(call.arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            )
+            for call in calls
         )
 
     def _append(self, role: str, content: str) -> None:
