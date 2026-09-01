@@ -10,7 +10,7 @@ CHARS_PER_TOKEN = 4
 LARGE_RESULT_CHARS = 12_000  # L3：超过该长度的工具结果落盘
 RESULT_PREVIEW_CHARS = 4_000  # L3：落盘后保留的预览长度
 MAX_MESSAGES = 60  # L1：视图消息数上限
-KEEP_RECENT = 2  # L2：保留最近 N 条不压缩
+KEEP_RECENT = 6  # L2：保留最近 3 组“动作 + 工具结果”不压缩
 BRIEF_CHARS = 160  # L2：旧工具结果的摘要长度
 
 SUMMARY_SYSTEM_PROMPT = (
@@ -182,7 +182,7 @@ class ContextManager:
         view = self._budget_tool_results(view, stats)  # L3：无条件防超大单条
         if self._over_budget(view):
             view = self._snip_middle(view, stats)  # L1
-            view = self._compact_old_results(view, stats)  # L2
+            view = self._compact_old_results(view, stats)  # L2：保留完整的最近工具交互对
             if self._over_budget(view):
                 summarized = self._summarize(view, stats)  # L4：仅超阈花 1 次 API
                 if summarized is None:
@@ -265,12 +265,21 @@ class ContextManager:
         stats: dict[str, int],
         keep_recent: int = KEEP_RECENT,
     ) -> list[dict[str, str]]:
+        # During an active tool loop, retain three complete action/result pairs.
+        # A completed history ending in an assistant final keeps the legacy short window.
+        if not (
+            len(view) >= 8
+            and view
+            and view[-1]["role"] == "user"
+            and view[-1]["content"].startswith("工具结果 ")
+        ):
+            keep_recent = 2
         if len(view) <= keep_recent + 1:
             return view
         result = list(view)
         limit = len(result) - keep_recent
         compacted = 0
-        for index in range(1, limit):  # 跳过 system，最近 keep_recent 条不动
+        for index in range(1, limit):  # 跳过 system，最近 keep_recent 条消息不动
             message = result[index]
             if message["role"] != "user" or not message["content"].startswith("工具结果 "):
                 continue

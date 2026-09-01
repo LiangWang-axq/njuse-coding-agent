@@ -84,6 +84,22 @@ class ContextManagerTests(unittest.TestCase):
         view = context.prepare()
         self.assertEqual(view[-1]["content"], result_msg)  # 最近一条不压缩
 
+    def test_prepare_keeps_recent_tool_interaction_pairs(self):
+        context = ContextManager("system", max_chars=3000)
+        context.append("user", "任务")
+        for path in ("orders.py", "tests/test_orders.py", "result.txt"):
+            context.append(
+                "assistant",
+                json.dumps({"type": "tool_call", "tool": "read_file", "arguments": {"path": path}}),
+            )
+            context.append("user", tool_result(result={"path": path, "content": path * 100}))
+
+        view = context.prepare()
+        visible = " ".join(message["content"] for message in view)
+        self.assertIn("orders.py", visible)
+        self.assertIn("tests/test_orders.py", visible)
+        self.assertIn("result.txt", visible)
+
     def test_rejects_small_budget(self):
         with self.assertRaises(ValueError):
             ContextManager("system", max_chars=100)

@@ -166,6 +166,67 @@ class WorkspaceTests(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertEqual(seen, [(1, "list_files")])
 
+    def test_agent_stops_repeated_read_cycle_before_max_steps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            response_cycle = [
+                json.dumps({"type": "tool_call", "tool": "read_file", "arguments": {"path": "orders.py"}}),
+                json.dumps({"type": "tool_call", "tool": "read_file", "arguments": {"path": "tests/test_orders.py"}}),
+            ]
+            provider = ScriptedProvider(response_cycle * 5)
+
+            result = CodingAgent(root, provider, max_steps=12).run("检查并修复项目")
+
+            self.assertFalse(result.success)
+            self.assertLess(result.steps, 12)
+            self.assertIn("重复执行无进展工具调用", result.message)
+
+    def test_agent_gives_one_loop_recovery_prompt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "notes.txt").write_text("old\n", encoding="utf-8")
+            diff = "--- a/notes.txt\n+++ b/notes.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n"
+            repeated_read = json.dumps(
+                {"type": "tool_call", "tool": "read_file", "arguments": {"path": "notes.txt"}}
+            )
+            provider = ScriptedProvider(
+                [
+                    repeated_read,
+                    repeated_read,
+                    repeated_read,
+                    json.dumps({"type": "tool_call", "tool": "apply_diff", "arguments": {"path": "notes.txt", "diff": diff}}),
+                    json.dumps({"type": "final", "message": "完成"}),
+                ]
+            )
+
+            result = CodingAgent(root, provider, max_steps=8).run("修改并检查文件")
+
+            self.assertTrue(result.success)
+            self.assertEqual(result.message, "完成")
+            self.assertIn("不要再次读取相同文件", " ".join(m["content"] for m in result.history))
+
+    def test_successful_edit_resets_repeated_action_detection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "notes.txt").write_text("old\n", encoding="utf-8")
+            diff = "--- a/notes.txt\n+++ b/notes.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n"
+            provider = ScriptedProvider(
+                [
+                    json.dumps({"type": "tool_call", "tool": "read_file", "arguments": {"path": "notes.txt"}}),
+                    json.dumps({"type": "tool_call", "tool": "read_file", "arguments": {"path": "notes.txt"}}),
+                    json.dumps({"type": "tool_call", "tool": "apply_diff", "arguments": {"path": "notes.txt", "diff": diff}}),
+                    json.dumps({"type": "tool_call", "tool": "read_file", "arguments": {"path": "notes.txt"}}),
+                    json.dumps({"type": "tool_call", "tool": "read_file", "arguments": {"path": "notes.txt"}}),
+                    json.dumps({"type": "final", "message": "完成"}),
+                ]
+            )
+
+            result = CodingAgent(root, provider, max_steps=8).run("修改并检查文件")
+
+            self.assertTrue(result.success)
+            self.assertEqual(result.message, "完成")
+            self.assertEqual((root / "notes.txt").read_text(encoding="utf-8"), "new\n")
+
     def test_agent_reports_compression_events_and_stats(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
