@@ -8,10 +8,11 @@
 1. 安装 Python 3.10 及以上；
 2. 在本项目根目录执行 python -m pip install -e .，完成一次本地安装；
 3. 复制 .env.example 为 .env，填写 AGENT_API_KEY（或设置环境变量）；
-4. 进入要处理的项目目录，执行 python -m coding_agent，当前目录自动作为工作区；
-5. 一次性执行：python -m coding_agent "任务描述"（执行完退出，退出码 0/1/2）；
-6. 恢复历史会话：python -m coding_agent --resume（恢复最新会话），或用 python -m coding_agent --resume-session <序号|ID|唯一前缀> 恢复指定会话；
-7. 管理历史会话：python -m coding_agent --list-sessions 查看列表，python -m coding_agent --delete-session <选择器> 删除指定会话（加 --yes 跳过确认）。列表和删除不需要 API key。
+4. 进入要处理的项目目录，执行 python -m coding_agent（或已安装的 coding-agent），当前目录自动作为工作区；
+5. 也可以从本项目根目录用 `--workspace PATH` 指定目标目录，例如：`python -m coding_agent --workspace .\demo\tasks\fix_me`；
+6. 一次性执行：python -m coding_agent "任务描述"（执行完退出，退出码 0/1/2）；
+7. 恢复历史会话：python -m coding_agent --resume（恢复最新会话），或用 python -m coding_agent --resume-session <序号|ID|唯一前缀> 恢复指定会话；
+8. 管理历史会话：python -m coding_agent --list-sessions 查看列表，python -m coding_agent --delete-session <选择器> 删除指定会话（加 --yes 跳过确认）。列表和删除不需要 API key。
 
 启动时可用 `--workspace PATH` 或 `-w PATH` 指定工作区；进入多轮对话后可用 `/workspace [路径]` 查看、选择或切换工作区。
 

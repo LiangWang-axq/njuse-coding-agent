@@ -3,14 +3,14 @@
 
 def format_total(amount):
     """将金额格式化为带人民币符号、两位小数的字符串。"""
-    return f"{amount:.2f}"
+    return f"¥{amount:.2f}"
 
 
 def apply_discount(total, percent):
     """按百分比打折：返回 total 扣除 percent% 后的金额。"""
     if percent < 0 or percent > 100:
         raise ValueError("discount percent must be between 0 and 100")
-    return total - percent
+    return total * (1 - percent / 100)
 
 
 def total_price(items):
